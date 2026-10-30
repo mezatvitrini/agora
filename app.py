@@ -5,6 +5,7 @@ from pathlib import Path
 
 PROCESSED_CSV = Path("data/processed/headlines_tagged.csv")
 FRAME_JSON = Path("data/processed/frame_comparison.json")
+PREDICTIONS_CSV = Path("data/predictions.csv")
 
 st.set_page_config(page_title="Agora", page_icon="🏛️", layout="wide")
 
@@ -171,3 +172,58 @@ else:
             st.info("Karşılaştırılacak olay grubu bulunamadı.")
         for grup in frame_gruplari:
             _grup_goster(grup)
+
+
+# --- Tahmin takibi (Tracker) ---
+TAHMIN_SUTUNLARI = {
+    "tahmin_id": "ID",
+    "tahmin_tarihi": "Tarih",
+    "haber_basligi": "Haber",
+    "varlik": "Varlık",
+    "ai_tahmini": "Yön",
+    "ai_guven_skoru": "Güven",
+    "gerceklesen_getiri_1g": "Anormal getiri 1g (%)",
+    "gerceklesen_getiri_7g": "Anormal getiri 7g (%)",
+    "durum": "Durum",
+}
+
+
+def _tahminleri_oku():
+    try:
+        return pd.read_csv(PREDICTIONS_CSV, dtype=str, keep_default_na=False)
+    except (OSError, pd.errors.ParserError, pd.errors.EmptyDataError) as exc:
+        st.warning(f"Tahmin dosyası okunamadı: {exc}")
+        return None
+
+
+def _ortalama_getiri(tahminler, kolon):
+    degerler = pd.to_numeric(tahminler.get(kolon), errors="coerce").dropna()
+    return f"{degerler.mean():.2f}%" if len(degerler) else "—"
+
+
+st.markdown("### Tahmin Takibi (Tracker)")
+if not PREDICTIONS_CSV.exists():
+    st.info("Henüz tahmin kaydı yok. `data/predictions.csv` ilk tahminle birlikte oluşur.")
+else:
+    if st.button("Tahminleri Değerlendir", help="Bekleyen tahminler için 1g/7g anormal getiriyi hesaplar"):
+        try:
+            from tracker.evaluator import evaluate_predictions
+            with st.spinner("Fiyatlar çekiliyor..."):
+                ozet = evaluate_predictions()
+            st.success(f"{ozet['tamamlanan']} tahmin değerlendirildi, "
+                       f"{ozet['bekleyen']} tanesi beklemede kaldı.")
+        except Exception as exc:  # arayüz çökmesin, hatayı kullanıcıya göster
+            st.error(f"Değerlendirme başarısız: {exc}")
+
+    tahminler = _tahminleri_oku()
+    if tahminler is not None and tahminler.empty:
+        st.info("Tahmin dosyası boş. Tracker ilk tahmini kaydettiğinde tablo dolacak.")
+    elif tahminler is not None:
+        durum = tahminler["durum"].str.strip() if "durum" in tahminler else pd.Series(dtype=str)
+        metrikler = st.columns(5)
+        metrikler[0].metric("Toplam tahmin", len(tahminler))
+        metrikler[1].metric("Tamamlanan", int((durum == "tamamlandi").sum()))
+        metrikler[2].metric("Beklemede", int((durum == "beklemede").sum()))
+        metrikler[3].metric("Ort. anormal getiri (1g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_1g"))
+        metrikler[4].metric("Ort. anormal getiri (7g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_7g"))
+        st.dataframe(tahminler.rename(columns=TAHMIN_SUTUNLARI), width="stretch", hide_index=True)

@@ -7,11 +7,108 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-# RSS kaynakları (farklı sahiplik yapılarından)
+# RSS kaynakları
+# Her kaynak: url, ulke (ISO 3166-1 alpha-2), dil (ISO 639-1),
+# kaynak_tipi ("devlet_baglantili" / "ozel" / "ajans").
+# Eski biçim (yalnızca URL metni) de desteklenir: collector eksik alanları boş bırakır.
 FEEDS = {
-    "aa": "https://www.aa.com.tr/tr/rss/default?cat=guncel",
-    "bbc_turkce": "https://feeds.bbci.co.uk/turkce/rss.xml",
-    "hurriyet": "https://www.hurriyet.com.tr/rss/anasayfa",
+    # --- Türkiye ---
+    "aa": {
+        "url": "https://www.aa.com.tr/tr/rss/default?cat=guncel",
+        "ulke": "TR",
+        "dil": "tr",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    "bbc_turkce": {
+        "url": "https://feeds.bbci.co.uk/turkce/rss.xml",
+        "ulke": "GB",
+        "dil": "tr",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    "hurriyet": {
+        "url": "https://www.hurriyet.com.tr/rss/anasayfa",
+        "ulke": "TR",
+        "dil": "tr",
+        "kaynak_tipi": "ozel",
+    },
+    "dailysabah": {
+        "url": "https://www.dailysabah.com/rssFeed/all",
+        "ulke": "TR",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    # --- ABD ---
+    "cnn_world": {
+        "url": "http://rss.cnn.com/rss/edition_world.rss",
+        "ulke": "US",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
+    "nyt_world": {
+        "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "ulke": "US",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
+    # --- İngiltere / Avrupa ---
+    "bbc_world": {
+        "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "ulke": "GB",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    "euronews": {
+        "url": "https://www.euronews.com/rss?level=theme&name=news",
+        "ulke": "FR",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
+    "guardian_world": {
+        "url": "https://www.theguardian.com/world/rss",
+        "ulke": "GB",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
+    # --- Rusya ---
+    "rt": {
+        "url": "https://www.rt.com/rss/",
+        "ulke": "RU",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    "tass": {
+        "url": "https://tass.com/rss/v2.xml",
+        "ulke": "RU",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    # --- Orta Doğu ---
+    "aljazeera": {
+        "url": "https://www.aljazeera.com/xml/rss/all.xml",
+        "ulke": "QA",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    # --- Çin ---
+    "cgtn": {
+        "url": "https://www.cgtn.com/subscribe/rss/section/world.xml",
+        "ulke": "CN",
+        "dil": "en",
+        "kaynak_tipi": "devlet_baglantili",
+    },
+    # --- Kripto / piyasa ---
+    "coindesk": {
+        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "ulke": "US",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
+    "cointelegraph": {
+        "url": "https://cointelegraph.com/rss",
+        "ulke": "US",
+        "dil": "en",
+        "kaynak_tipi": "ozel",
+    },
 }
 
 # Kategoriler

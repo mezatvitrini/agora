@@ -1,8 +1,18 @@
-data/raw/
-data/processed/
-data/*.tmp
 .env
 __pycache__/
 .idea/
 .agents/
 .claude/
+data/raw/
+data/processed/
+data/backfill/
+data/clusters.csv
+data/gaps.csv
+data/analysis/cache.json
+data/predictions_backup.csv
+data/*.tmp
+logs/
+
+# Tahmin ve analiz geçmişi yeniden üretilemez, takipte kalır:
+#   data/predictions.csv
+#   data/analysis/analizler.jsonl

@@ -1,4 +1,11 @@
 # Agora yapılandırma dosyası
+from pathlib import Path
+from dotenv import load_dotenv
+
+# API anahtarları kodda tutulmaz; yalnızca .env dosyasından ortam değişkenine yüklenir.
+# (load_dotenv mevcut ortam değişkenlerini ezmez.)
+PROJECT_ROOT = Path(__file__).resolve().parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 # RSS kaynakları (farklı sahiplik yapılarından)
 FEEDS = {

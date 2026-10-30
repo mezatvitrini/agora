@@ -42,31 +42,8 @@ if secili_kaynak != "Tümü":
 if secili_kategoriler:
     filtreli = filtreli[filtreli["kat_listesi"].apply(lambda lst: any(k in lst for k in secili_kategoriler))]
 
-# --- Ana ekran ---
-st.subheader(f"{len(filtreli)} haber")
 
-# Kategori dağılımı
-st.markdown("### Kategori dağılımı")
-if tum_kategoriler:
-    kat_sayilari = {k: 0 for k in tum_kategoriler}
-    for lst in filtreli["kat_listesi"]:
-        for k in lst:
-            kat_sayilari[k] += 1
-    st.bar_chart(pd.Series(kat_sayilari).sort_values(ascending=False))
-else:
-    st.info("Henüz kategori verisi yok.")
-
-# Haber listesi
-st.markdown("### Haberler")
-for _, row in filtreli.iterrows():
-    with st.expander(f"[{row['source']}] {row['title']}"):
-        st.write(f"**Kategoriler:** {', '.join(row['kat_listesi']) or '—'}")
-        st.write(f"**Aktörler:** {row.get('aktorler', '—')}")
-        st.write(f"**Yayın:** {row.get('published', '—')}")
-        st.markdown(f"[Habere git]({row['link']})")
-
-
-# --- Çerçeveleme karşılaştırması ---
+# --- Çerçeveleme karşılaştırması yardımcıları ---
 def _liste_metni(items):
     return ", ".join(items) if items else "—"
 
@@ -139,42 +116,7 @@ def _grup_goster(grup):
                 )
 
 
-st.markdown("### Çerçeveleme karşılaştırması")
-if not FRAME_JSON.exists():
-    st.info("Çerçeve karşılaştırması bulunamadı. Önce `python main.py` çalıştırın.")
-else:
-    try:
-        frame_data = json.loads(FRAME_JSON.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        frame_data = None
-        st.warning(f"Çerçeve dosyası okunamadı: {exc}")
-    if isinstance(frame_data, dict):
-        frame_gruplari = frame_data.get("gruplar") or []
-        st.caption(
-            f"{len(frame_gruplari)} olay grubu · model: {frame_data.get('model', '—')} · "
-            f"üretim: {frame_data.get('uretim_zamani', '—')}"
-        )
-        if frame_data.get("durum") == "api_anahtari_yok":
-            st.warning("LLM anahtarı bulunmadığı için yalnızca gruplama gösteriliyor.")
-        elif frame_data.get("durum") == "kismi":
-            st.warning("Bazı gruplar karşılaştırılamadı (LLM hatası).")
-
-        if secili_kaynak != "Tümü" or secili_kategoriler:
-            secili_haberler = set(zip(filtreli["source"], filtreli["title"]))
-            frame_gruplari = [
-                grup for grup in frame_gruplari
-                if any((h.get("kaynak"), h.get("baslik")) in secili_haberler
-                       for h in grup.get("haberler") or [])
-            ]
-            if not frame_gruplari:
-                st.info("Seçili filtrelerle eşleşen olay grubu yok. Filtreleri temizleyip tekrar deneyin.")
-        if not frame_gruplari:
-            st.info("Karşılaştırılacak olay grubu bulunamadı.")
-        for grup in frame_gruplari:
-            _grup_goster(grup)
-
-
-# --- Tahmin takibi (Tracker) ---
+# --- Tahmin takibi (Tracker) yardımcıları ---
 TAHMIN_SUTUNLARI = {
     "tahmin_id": "ID",
     "tahmin_tarihi": "Tarih",
@@ -201,29 +143,95 @@ def _ortalama_getiri(tahminler, kolon):
     return f"{degerler.mean():.2f}%" if len(degerler) else "—"
 
 
-st.markdown("### Tahmin Takibi (Tracker)")
-if not PREDICTIONS_CSV.exists():
-    st.info("Henüz tahmin kaydı yok. `data/predictions.csv` ilk tahminle birlikte oluşur.")
-else:
-    if st.button("Tahminleri Değerlendir", help="Bekleyen tahminler için 1g/7g anormal getiriyi hesaplar"):
-        try:
-            from tracker.evaluator import evaluate_predictions
-            with st.spinner("Fiyatlar çekiliyor..."):
-                ozet = evaluate_predictions()
-            st.success(f"{ozet['tamamlanan']} tahmin değerlendirildi, "
-                       f"{ozet['bekleyen']} tanesi beklemede kaldı.")
-        except Exception as exc:  # arayüz çökmesin, hatayı kullanıcıya göster
-            st.error(f"Değerlendirme başarısız: {exc}")
+# --- Sekmeler ---
+tab_frame, tab_tracker, tab_haber = st.tabs([
+    "Çerçeveleme Karşılaştırması",
+    "Tahmin Takibi (Tracker)",
+    "Haber Akışı",
+])
 
-    tahminler = _tahminleri_oku()
-    if tahminler is not None and tahminler.empty:
-        st.info("Tahmin dosyası boş. Tracker ilk tahmini kaydettiğinde tablo dolacak.")
-    elif tahminler is not None:
-        durum = tahminler["durum"].str.strip() if "durum" in tahminler else pd.Series(dtype=str)
-        metrikler = st.columns(5)
-        metrikler[0].metric("Toplam tahmin", len(tahminler))
-        metrikler[1].metric("Tamamlanan", int((durum == "tamamlandi").sum()))
-        metrikler[2].metric("Beklemede", int((durum == "beklemede").sum()))
-        metrikler[3].metric("Ort. anormal getiri (1g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_1g"))
-        metrikler[4].metric("Ort. anormal getiri (7g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_7g"))
-        st.dataframe(tahminler.rename(columns=TAHMIN_SUTUNLARI), width="stretch", hide_index=True)
+with tab_frame:
+    st.markdown("### Çerçeveleme karşılaştırması")
+    if not FRAME_JSON.exists():
+        st.info("Çerçeve karşılaştırması bulunamadı. Önce `python main.py` çalıştırın.")
+    else:
+        try:
+            frame_data = json.loads(FRAME_JSON.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            frame_data = None
+            st.warning(f"Çerçeve dosyası okunamadı: {exc}")
+        if isinstance(frame_data, dict):
+            frame_gruplari = frame_data.get("gruplar") or []
+            st.caption(
+                f"{len(frame_gruplari)} olay grubu · model: {frame_data.get('model', '—')} · "
+                f"üretim: {frame_data.get('uretim_zamani', '—')}"
+            )
+            if frame_data.get("durum") == "api_anahtari_yok":
+                st.warning("LLM anahtarı bulunmadığı için yalnızca gruplama gösteriliyor.")
+            elif frame_data.get("durum") == "kismi":
+                st.warning("Bazı gruplar karşılaştırılamadı (LLM hatası).")
+
+            if secili_kaynak != "Tümü" or secili_kategoriler:
+                secili_haberler = set(zip(filtreli["source"], filtreli["title"]))
+                frame_gruplari = [
+                    grup for grup in frame_gruplari
+                    if any((h.get("kaynak"), h.get("baslik")) in secili_haberler
+                           for h in grup.get("haberler") or [])
+                ]
+                if not frame_gruplari:
+                    st.info("Seçili filtrelerle eşleşen olay grubu yok. Filtreleri temizleyip tekrar deneyin.")
+            if not frame_gruplari:
+                st.info("Karşılaştırılacak olay grubu bulunamadı.")
+            for grup in frame_gruplari:
+                _grup_goster(grup)
+
+with tab_tracker:
+    st.markdown("### Tahmin Takibi (Tracker)")
+    if not PREDICTIONS_CSV.exists():
+        st.info("Henüz tahmin kaydı yok. `data/predictions.csv` ilk tahminle birlikte oluşur.")
+    else:
+        if st.button("Tahminleri Değerlendir", help="Bekleyen tahminler için 1g/7g anormal getiriyi hesaplar"):
+            try:
+                from tracker.evaluator import evaluate_predictions
+                with st.spinner("Fiyatlar çekiliyor..."):
+                    ozet = evaluate_predictions()
+                st.success(f"{ozet['tamamlanan']} tahmin değerlendirildi, "
+                           f"{ozet['bekleyen']} tanesi beklemede kaldı.")
+            except Exception as exc:  # arayüz çökmesin, hatayı kullanıcıya göster
+                st.error(f"Değerlendirme başarısız: {exc}")
+
+        tahminler = _tahminleri_oku()
+        if tahminler is not None and tahminler.empty:
+            st.info("Tahmin dosyası boş. Tracker ilk tahmini kaydettiğinde tablo dolacak.")
+        elif tahminler is not None:
+            durum = tahminler["durum"].str.strip() if "durum" in tahminler else pd.Series(dtype=str)
+            metrikler = st.columns(5)
+            metrikler[0].metric("Toplam tahmin", len(tahminler))
+            metrikler[1].metric("Tamamlanan", int((durum == "tamamlandi").sum()))
+            metrikler[2].metric("Beklemede", int((durum == "beklemede").sum()))
+            metrikler[3].metric("Ort. anormal getiri (1g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_1g"))
+            metrikler[4].metric("Ort. anormal getiri (7g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_7g"))
+            st.dataframe(tahminler.rename(columns=TAHMIN_SUTUNLARI), width="stretch", hide_index=True)
+
+with tab_haber:
+    st.subheader(f"{len(filtreli)} haber")
+
+    # Kategori dağılımı
+    st.markdown("### Kategori dağılımı")
+    if tum_kategoriler:
+        kat_sayilari = {k: 0 for k in tum_kategoriler}
+        for lst in filtreli["kat_listesi"]:
+            for k in lst:
+                kat_sayilari[k] += 1
+        st.bar_chart(pd.Series(kat_sayilari).sort_values(ascending=False))
+    else:
+        st.info("Henüz kategori verisi yok.")
+
+    # Haber listesi
+    st.markdown("### Haberler")
+    for _, row in filtreli.iterrows():
+        with st.expander(f"[{row['source']}] {row['title']}"):
+            st.write(f"**Kategoriler:** {', '.join(row['kat_listesi']) or '—'}")
+            st.write(f"**Aktörler:** {row.get('aktorler', '—')}")
+            st.write(f"**Yayın:** {row.get('published', '—')}")
+            st.markdown(f"[Habere git]({row['link']})")

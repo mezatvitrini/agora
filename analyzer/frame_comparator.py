@@ -37,9 +37,13 @@ LLM_API_URL = "https://api.deepseek.com/chat/completions"
 LLM_MODEL = "deepseek-chat"
 LLM_TIMEOUT = 90
 LLM_MAX_RETRIES = 3
-LLM_MAX_TOKENS = 2000
+LLM_MAX_TOKENS = 4000
 PREVIEW_LEN = 8000
 MAX_TITLE_CHARS = 300
+
+# deepseek-chat fiyatları (USD / 1M token; önbellek isabetsiz giriş ve çıkış)
+COST_INPUT_PER_MTOK = 0.27
+COST_OUTPUT_PER_MTOK = 1.10
 
 TITLE_SIMILARITY_THRESHOLD = 0.45
 MIN_CONTAINMENT_TOKENS = 3
@@ -52,6 +56,9 @@ MAX_GROUP_SIZE = 6
 MAX_GROUPS = 40
 CACHE_SAVE_EVERY = 5
 PROMPT_VERSION = "v1"
+
+# İstek/token sayaçları (main() başında sıfırlanır)
+TOKEN_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0}
 
 # Başlık karşılaştırmasında anlam taşımayan kelimeler.
 STOPWORDS = {
@@ -333,11 +340,30 @@ def _build_user_prompt(members: list[dict]) -> str:
     return "\n".join(lines)[:PREVIEW_LEN]
 
 
-def _call_llm(members: list[dict]) -> dict | None:
+def _estimate_cost() -> float:
+    return (TOKEN_USAGE["prompt_tokens"] / 1_000_000 * COST_INPUT_PER_MTOK
+            + TOKEN_USAGE["completion_tokens"] / 1_000_000 * COST_OUTPUT_PER_MTOK)
+
+
+def _record_usage(body: dict, content: str, prompt_chars: int) -> None:
+    usage = body.get("usage") or {}
+    TOKEN_USAGE["calls"] += 1
+    if usage:
+        TOKEN_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
+        TOKEN_USAGE["completion_tokens"] += int(usage.get("completion_tokens") or 0)
+    else:
+        # API usage döndürmediyse kaba tahmin (yaklaşık 4 karakter/token)
+        TOKEN_USAGE["usage_missing"] += 1
+        TOKEN_USAGE["prompt_tokens"] += max(1, prompt_chars // 4)
+        TOKEN_USAGE["completion_tokens"] += max(1, len(content or "") // 4)
+
+
+def _call_llm(members: list[dict]) -> tuple[dict | None, str | None]:
+    """(veri, hata_nedeni) döndürür. hata_nedeni: yanit_kesildi / gecersiz_json / istek_hatasi."""
     key = _api_key()
     if not key:
         logger.error("DEEPSEEK_API_KEY bulunamadı (.env veya ortam değişkeni)")
-        return None
+        return None, "api_anahtari_yok"
     payload = {
         "model": LLM_MODEL,
         "messages": [
@@ -348,6 +374,7 @@ def _call_llm(members: list[dict]) -> dict | None:
         "max_tokens": LLM_MAX_TOKENS,
         "response_format": {"type": "json_object"},
     }
+    prompt_chars = sum(len(message["content"]) for message in payload["messages"])
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     for attempt in range(LLM_MAX_RETRIES):
         try:
@@ -362,19 +389,28 @@ def _call_llm(members: list[dict]) -> dict | None:
             continue
         if resp.status_code != 200:
             logger.error("LLM hatası %s: %s", resp.status_code, resp.text[:200])
-            return None
+            return None, "istek_hatasi"
         try:
-            content = resp.json()["choices"][0]["message"]["content"]
+            body = resp.json()
+            choice = body["choices"][0]
+            content = choice["message"]["content"]
+            finish_reason = choice.get("finish_reason")
         except (KeyError, IndexError, ValueError, TypeError):
             logger.warning("LLM yanıtı beklenen biçimde değil")
-            return None
+            return None, "istek_hatasi"
+        _record_usage(body, content or "", prompt_chars)
         data = _extract_json(content or "")
         if data is None:
+            cut = finish_reason == "length" or not (content or "").rstrip().endswith("}")
+            if cut:
+                logger.warning("Yanıt kesildi (max_tokens=%d, %d karakter): grup %d haber içeriyor",
+                               LLM_MAX_TOKENS, len(content or ""), len(members))
+                return None, "yanit_kesildi"
             logger.warning("LLM geçersiz JSON döndürdü: %s", (content or "")[:160])
-            return None
-        return data
+            return None, "gecersiz_json"
+        return data, None
     logger.warning("LLM isteği %d denemede tamamlanamadı", LLM_MAX_RETRIES)
-    return None
+    return None, "istek_hatasi"
 
 
 def _clean_comparison(data: dict, members: list[dict]) -> dict:
@@ -508,6 +544,7 @@ def _public_group(group: dict, comparison: dict | None, error: str | None = None
         result["not"] = f"Grup {MAX_GROUP_SIZE} haberle sınırlandı."
     if error:
         result["hata"] = error
+        result["basarisiz"] = True
     return result
 
 
@@ -538,7 +575,10 @@ def main(argv: list[str] | None = None) -> None:
 
     cache_path, output_path = Path(args.cache), Path(args.output)
     cache = _load_cache(cache_path) if has_key else {}
+    TOKEN_USAGE.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0})
+    started = time.monotonic()
     hits = calls = failures = unsaved = 0
+    failures_list: list[tuple[int, str]] = []
     results = []
     for number, group in enumerate(selected, start=1):
         comparison, error = None, None
@@ -550,11 +590,13 @@ def main(argv: list[str] | None = None) -> None:
             hits += 1
         else:
             logger.info("Grup %d/%d karşılaştırılıyor (%d haber)", number, len(selected), len(group["haberler"]))
-            raw = _call_llm(group["haberler"])
+            raw, reason = _call_llm(group["haberler"])
             calls += 1
             if raw is None:
                 failures += 1
-                error = "llm_hatasi"
+                error = reason or "llm_hatasi"
+                failures_list.append((number, error))
+                logger.warning("Grup %d BAŞARISIZ (%s) — grubun karşılaştırması boş kalacak", number, error)
             else:
                 comparison = _clean_comparison(raw, group["haberler"])
                 cache[key] = comparison
@@ -568,6 +610,7 @@ def main(argv: list[str] | None = None) -> None:
     if has_key:
         _save_json(cache_path, cache)
 
+    elapsed = time.monotonic() - started
     payload = {
         "uretim_zamani": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "girdi": str(args.input),
@@ -576,10 +619,28 @@ def main(argv: list[str] | None = None) -> None:
         "haber_sayisi": len(items),
         "grup_sayisi": len(selected),
         "toplam_grup": len(groups),
+        "istatistik": {
+            "llm_cagrisi": TOKEN_USAGE["calls"],
+            "onbellek_isabeti": hits,
+            "giris_token": TOKEN_USAGE["prompt_tokens"],
+            "cikis_token": TOKEN_USAGE["completion_tokens"],
+            "tahmini_maliyet_usd": round(_estimate_cost(), 5),
+            "sure_sn": round(elapsed, 1),
+            "basarisiz_gruplar": [{"grup_id": gid, "neden": reason} for gid, reason in failures_list],
+        },
         "gruplar": results,
     }
     _save_json(output_path, payload)
     logger.info("Önbellek: %d isabet, %d LLM çağrısı, %d hata", hits, calls, failures)
+    if failures_list:
+        logger.warning("Başarısız gruplar: %s",
+                       ", ".join(f"{gid} ({reason})" for gid, reason in failures_list))
+    logger.info("Süre: %.1f sn | token: giriş %d, çıkış %d | tahmini maliyet: $%.5f",
+                elapsed, TOKEN_USAGE["prompt_tokens"], TOKEN_USAGE["completion_tokens"],
+                _estimate_cost())
+    if TOKEN_USAGE["usage_missing"]:
+        logger.warning("%d istekte API token bilgisi dönmedi, değerler tahminidir",
+                       TOKEN_USAGE["usage_missing"])
     logger.info("Çıktı yazıldı: %s (%d grup)", output_path, len(results))
 
 

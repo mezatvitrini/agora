@@ -1,0 +1,3 @@
+tahmin_id,tahmin_tarihi,haber_basligi,varlik,ai_tahmini,ai_guven_skoru,gerceklesen_getiri_1g,gerceklesen_getiri_7g,durum
+T0001,2026-10-15,"Bitcoin, Fed faiz kararı sonrası 76 bin doların üzerinde tutunuyor",BTC,olumlu,7,0.00,0.00,tamamlandi
+T0002,2026-10-20,"Ethereum ETF'lerine girişler hızlandı, ETH 2 bin doları aştı",ETH,olumlu,6,-0.31,-1.47,tamamlandi

@@ -28,7 +28,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger("agora.backfill")
 
 # --- Ayarlar ---
-BASLANGIC = date(2026, 2, 1)
+# The News API geçmişi ~180 günle sınırlı: 2026-05-05 öncesi sorgular boş dönüyor
+# (2026-02-01…2026-05-01 arası doğrulandı: found=0). Bu yüzden varsayılan başlangıç 180 gün öncesi.
+BASLANGIC = date(2026, 5, 5)
 BITIS = date.today()
 KONULAR = {
     "bitcoin": "bitcoin",

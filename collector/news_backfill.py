@@ -8,6 +8,7 @@ Kurallar:
 - published degeri istenen gune uymayan satirlar sayilir ama CSV'ye yazilmaz.
 """
 from __future__ import annotations
+import argparse
 import csv
 import json
 import logging
@@ -70,10 +71,10 @@ class Kayit:
     kaynak_tipi: str
 
 
-def gun_konu_ciftleri() -> list[tuple[str, date]]:
+def gun_konu_ciftleri(baslangic: date = BASLANGIC) -> list[tuple[str, date]]:
     """Kronolojik sirada (konu, gun) ciftleri: bitcoin her gun, oil/gold hafta ici."""
     ciftler: list[tuple[str, date]] = []
-    gun = BASLANGIC
+    gun = baslangic
     while gun <= BITIS:
         for konu in KONULAR:
             if konu in ("oil", "gold") and gun.weekday() not in HAFTA_ICI:
@@ -164,8 +165,10 @@ def istek_at(konu: str, gun: date) -> tuple[list[dict], int | None, dict]:
     params = {
         "api_token": NEWS_API_KEY,
         "search": KONULAR[konu],
-        "published_after": gun.isoformat(),
-        "published_before": (gun + timedelta(days=1)).isoformat(),
+        # Tarih-only deger (YYYY-AA-GG) tek gunluk pencerede 0 sonuc donduruyor;
+        # API tarih-saat bekliyor: D 00:00:00 -> D+1 00:00:00.
+        "published_after": f"{gun.isoformat()}T00:00:00",
+        "published_before": f"{(gun + timedelta(days=1)).isoformat()}T00:00:00",
         "language": DIL,
         "sort": "published_at",
         "limit": SORGU_LIMIT,
@@ -211,12 +214,26 @@ def kayda_cevir(ham: dict, konu: str) -> Kayit | None:
     )
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Agora - The News API gecmis veri toplama")
+    parser.add_argument("--max-istek", type=int, default=MAKS_ISTEK,
+                        help=f"bu calistirmada en fazla kac API istegi (varsayilan {MAKS_ISTEK})")
+    parser.add_argument("--baslangic", default=BASLANGIC.isoformat(),
+                        help=f"ilk gun (YYYY-AA-GG, varsayilan {BASLANGIC.isoformat()}); "
+                             "The News API gecmisi ~180 gunle sinirli")
+    args = parser.parse_args(argv)
+    maks_istek = max(1, args.max_istek)
+    try:
+        baslangic = date.fromisoformat(args.baslangic)
+    except ValueError:
+        logger.error("Gecersiz --baslangic: %s", args.baslangic)
+        return 2
+
     if not NEWS_API_KEY:
         logger.error("NEWS_API_KEY tanimli degil (.env). Toplama baslatilmadi.")
         return 2
 
-    ciftler = gun_konu_ciftleri()
+    ciftler = gun_konu_ciftleri(baslangic)
     progress = progress_yukle()
     tamamlanan = set(progress["tamamlanan"])
     kalan_ciftler = [c for c in ciftler if anahtar(c[0], c[1]) not in tamamlanan]
@@ -230,10 +247,10 @@ def main() -> int:
     konu_dagilim: dict[str, int] = {}
     bu_calismada: list[str] = []
     kalan_kota: int | None = None
-    durus_nedeni = "butce doldu (90 istek)"
+    durus_nedeni = f"butce doldu ({maks_istek} istek)"
 
     for konu, gun in kalan_ciftler:
-        if istek >= MAKS_ISTEK:
+        if istek >= maks_istek:
             break
         if kalan_kota is not None and kalan_kota < KOTA_ESIGI:
             durus_nedeni = f"gunluk kota esigi (kalan {kalan_kota})"

@@ -134,6 +134,9 @@ EMBEDDING_EXCLUDE_SOURCES = ["coindesk", "cointelegraph"]  # ülke karşılaşt�
 CLUSTER_MAX_DAYS = 3
 CLUSTER_MAX_SIZE = 15
 EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+# Yerel model dizini (isteğe bağlı). Doluysa model ağa çıkmadan bu yoldan yüklenir;
+# boşsa EMBEDDING_MODEL repo kimliği kullanılır. Önbellek anahtarları her durumda EMBEDDING_MODEL'dir.
+EMBEDDING_MODEL_PATH = os.environ.get("EMBEDDING_MODEL_PATH", "").strip()
 EMBEDDINGS_DIR = "data/processed/embeddings"
 CLUSTERS_CSV = "data/processed/clusters_embedding.csv"
 GAPS_CSV = "data/processed/gaps_embedding.csv"

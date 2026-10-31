@@ -28,6 +28,7 @@ from config import (
     EMBEDDINGS_DIR,
     EMBEDDING_EXCLUDE_SOURCES,
     EMBEDDING_MODEL,
+    EMBEDDING_MODEL_PATH,
     EXCLUDED_CATEGORIES,
     FRAME_SKIP_SINGLE_COUNTRY,
     GAPS_CSV,
@@ -216,11 +217,13 @@ def load_model(model_name: str = EMBEDDING_MODEL):
             "sentence-transformers kurulu değil. Kurulum: pip install sentence-transformers"
         ) from exc
     try:
-        logger.info("Embedding modeli yükleniyor: %s", model_name)
-        return SentenceTransformer(model_name)
+        # EMBEDDING_MODEL_PATH doluysa yerel snapshot yüklenir: ağ erişimi ve Hub çözümlemesi yapılmaz.
+        hedef = EMBEDDING_MODEL_PATH or model_name
+        logger.info("Embedding modeli yükleniyor: %s", hedef)
+        return SentenceTransformer(hedef)
     except Exception as exc:
         raise RuntimeError(
-            f"Embedding modeli yüklenemedi/indirilemedi ({model_name}): {exc}\n"
+            f"Embedding modeli yüklenemedi/indirilemedi ({hedef}): {exc}\n"
             "İnternet bağlantısını ve Hugging Face erişimini kontrol edin "
             "(gerekirse HF_HOME veya HTTPS_PROXY ayarlayın)."
         ) from exc

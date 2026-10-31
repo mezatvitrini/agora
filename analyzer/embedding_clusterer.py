@@ -16,6 +16,7 @@ import logging
 import random
 import re
 from collections import Counter, defaultdict
+from itertools import combinations
 from pathlib import Path
 import numpy as np
 from config import (
@@ -43,9 +44,15 @@ ENCODING_BATCH_SIZE = 32
 
 CLUSTER_COLUMNS = [
     "kume_id", "baslik", "kaynak", "ulke", "dil", "kaynak_tipi",
-    "kume_boyutu", "ulke_sayisi", "tek_ulkeli",
+    "kume_boyutu", "ulke_sayisi", "tek_ulkeli", "uyum_skoru",
 ]
 GAP_COLUMNS = ["kume_id", "yazan_ulkeler", "yazmayan_ulkeler", "kapsama_orani"]
+REVIEW_PATH = "data/processed/review_clusters.txt"
+SUSPECT_RATIO = 0.2
+COST_INPUT_PER_MTOK = 0.27
+COST_OUTPUT_PER_MTOK = 1.10
+FRAME_MAX_HEADLINES = 8
+FRAME_AVG_OUTPUT_TOKENS = 2150
 
 
 def _path(value: str | Path) -> Path:
@@ -277,7 +284,26 @@ def cluster_rows(
     return _cluster_from_vectors(rows, vectors, threshold=threshold, max_days=max_days, max_size=max_size)
 
 
-def _cluster_row(cluster_id: str, members: list[dict]) -> list[dict]:
+def _vector_lookup(clusters: list[list[dict]]) -> dict[str, np.ndarray]:
+    """Kümedeki tüm başlıkların (önbellekten gelen) vektörleri; başlık -> vektör."""
+    titles = [m["title"] for members in clusters for m in members]
+    if not titles:
+        return {}
+    matrix = embed_titles(titles)
+    return {title: matrix[index] for index, title in enumerate(titles)}
+
+
+def cohesion_score(members: list[dict], lookup: dict[str, np.ndarray]) -> float:
+    """Küme içi ortalama kosinüs benzerliği (başlık çiftleri)."""
+    vectors = [lookup[m["title"]] for m in members if m["title"] in lookup]
+    if len(vectors) < 2:
+        return 1.0
+    pairs = list(combinations(range(len(vectors)), 2))
+    total = sum(float(np.dot(vectors[i], vectors[j])) for i, j in pairs)
+    return round(total / len(pairs), 3)
+
+
+def _cluster_row(cluster_id: str, members: list[dict], cohesion: float) -> list[dict]:
     countries = {m["ulke"] for m in members if m["ulke"]}
     return [
         {
@@ -290,6 +316,7 @@ def _cluster_row(cluster_id: str, members: list[dict]) -> list[dict]:
             "kume_boyutu": len(members),
             "ulke_sayisi": len(countries),
             "tek_ulkeli": "evet" if len(countries) <= 1 else "hayir",
+            "uyum_skoru": cohesion,
         }
         for m in members
     ]
@@ -298,9 +325,10 @@ def _cluster_row(cluster_id: str, members: list[dict]) -> list[dict]:
 def write_clusters(clusters: list[list[dict]], path: Path | None = None) -> Path:
     target = Path(path) if path else _path(CLUSTERS_CSV)
     target.parent.mkdir(parents=True, exist_ok=True)
+    lookup = _vector_lookup(clusters)
     rows: list[dict] = []
     for index, members in enumerate(clusters, start=1):
-        rows.extend(_cluster_row(f"K{index:03d}", members))
+        rows.extend(_cluster_row(f"K{index:03d}", members, cohesion_score(members, lookup)))
     with target.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=CLUSTER_COLUMNS)
         writer.writeheader()
@@ -340,7 +368,150 @@ def write_gaps(clusters: list[list[dict]], path: Path | None = None,
     return target
 
 
+def _percentile(values: list[float], fraction: float) -> float:
+    """Alt yüzdelik eşik (ör. 0.2 -> alt %20 sınırı)."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = max(0, min(len(ordered) - 1, int(len(ordered) * fraction) - 1))
+    return ordered[index]
+
+
+def write_review(clusters: list[list[dict]], path: Path | None = None,
+                 min_countries: int = GAPS_MIN_COUNTRIES,
+                 suspect_ratio: float = SUSPECT_RATIO) -> tuple[Path, int, float]:
+    """3+ ülkeli kümeleri uyum_skoruyla birlikte inceleme dosyasına yazar.
+
+    ŞÜPHELİ eşiği, inceleme dosyasına giren kümelerin kendi içinde alt %20'sidir
+    (tüm kümeler baz alındığında çok ülkeli kümeler hep eşiğin üstünde kalıyordu).
+    """
+    target = Path(path) if path else _path(REVIEW_PATH)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    lookup = _vector_lookup(clusters)
+    scored = [(index, members, cohesion_score(members, lookup))
+              for index, members in enumerate(clusters, start=1)]
+    selected = [(index, members, score) for index, members, score in scored
+                if len({m["ulke"] for m in members if m["ulke"]}) >= min_countries]
+    cutoff = _percentile([score for _, _, score in selected], suspect_ratio)
+    global_cutoff = _percentile([score for _, _, score in scored], suspect_ratio)
+    lines = [
+        "Agora - küme inceleme dosyası (3+ ülkeli kümeler)",
+        f"Eşik: {CLUSTER_THRESHOLD} | toplam küme: {len(clusters)} | incelenen küme: {len(selected)}",
+        f"ŞÜPHELİ eşiği (incelenen kümelerin uyum_skoru alt %{int(suspect_ratio * 100)}): {cutoff:.3f}"
+        f" | bilgi: tüm kümelerde alt %{int(suspect_ratio * 100)} sınırı {global_cutoff:.3f}",
+        "",
+    ]
+    for index, members, score in selected:
+        countries = sorted({m["ulke"] for m in members if m["ulke"]})
+        flag = "   <<< ŞÜPHELİ >>>" if score <= cutoff else ""
+        lines.append(f"[K{index:03d}] {len(countries)} ülke ({', '.join(countries)}) · "
+                     f"{len(members)} haber · uyum_skoru {score:.3f}{flag}")
+        for member in members:
+            lines.append(f"   - ({member['source']} | {member['ulke']}) {member['title']}")
+        lines.append("")
+    target.write_text("\n".join(lines), encoding="utf-8")
+    return target, len(selected), cutoff
+
+
+def _title_key(title: str) -> str:
+    folded = re.sub(r"[^a-z0-9]+", " ", title.lower().replace("\u0307", ""))
+    return " ".join(folded.split())
+
+
+def _near_duplicate(a: str, b: str, threshold: float = 0.8) -> bool:
+    words_a, words_b = set(_title_key(a).split()), set(_title_key(b).split())
+    if not words_a or not words_b:
+        return False
+    return len(words_a & words_b) / len(words_a | words_b) >= threshold
+
+
+def single_country_report(clusters: list[list[dict]]) -> dict:
+    """Tek ülkeli kümelerde kaynak kombinasyonları ve kopya başlık sayıları."""
+    single = [(index, members) for index, members in enumerate(clusters, start=1)
+              if len({m["ulke"] for m in members if m["ulke"]}) <= 1]
+    combinations_counter: Counter = Counter()
+    ayni_kaynak = 0
+    cok_kaynak = 0
+    exact_dupes = 0
+    near_dupes = 0
+    for _, members in single:
+        sources = sorted({m["source"] for m in members})
+        combinations_counter["+".join(sources)] += 1
+        if len(sources) == 1:
+            ayni_kaynak += 1
+        else:
+            cok_kaynak += 1
+        keys = [_title_key(m["title"]) for m in members]
+        exact_dupes += len(keys) - len(set(keys))
+        for (i, a), (j, b) in combinations(list(enumerate(members)), 2):
+            if a["source"] == b["source"]:
+                continue
+            if _near_duplicate(a["title"], b["title"]):
+                near_dupes += 1
+    return {
+        "tek_ulkeli_kume": len(single),
+        "tek_kaynakli_kume": ayni_kaynak,
+        "cok_kaynakli_kume": cok_kaynak,
+        "kaynak_kombinasyonlari": dict(combinations_counter.most_common()),
+        "birebir_ayni_baslik": exact_dupes,
+        "yakin_kopya_cift": near_dupes,
+    }
+
+
+def cost_estimate(clusters: list[list[dict]], csv_path: Path | None = None,
+                  max_headlines: int = FRAME_MAX_HEADLINES,
+                  avg_output_tokens: int = FRAME_AVG_OUTPUT_TOKENS) -> dict:
+    """Frame comparator entegrasyonu olmadan maliyet hesabı (API çağrısı yapmaz)."""
+    from analyzer import frame_comparator as fc
+
+    rows = load_rows(csv_path)
+    meta = {(row.get("source"), row.get("title")): row for row in rows}
+    multi = [members for members in clusters
+             if len({m["ulke"] for m in members if m["ulke"]}) >= 2]
+    total_chars = 0
+    for members in multi:
+        ordered = sorted(members, key=lambda m: (m.get("published") or "", m["source"]))
+        converted = []
+        for member in ordered[:max_headlines]:
+            row = meta.get((member["source"], member["title"]), {})
+            converted.append({
+                "source": member["source"],
+                "title": member["title"],
+                "published": row.get("published", ""),
+                "categories": _json_list(row.get("kategoriler")),
+                "actors": _json_list(row.get("aktorler")),
+            })
+        total_chars += len(fc.SYSTEM_PROMPT) + len(fc._build_user_prompt(converted))
+    input_tokens = total_chars / 3  # karma TR/EN metin için yaklaşık
+    output_tokens = avg_output_tokens * len(multi)
+    cost = (input_tokens / 1_000_000 * COST_INPUT_PER_MTOK
+            + output_tokens / 1_000_000 * COST_OUTPUT_PER_MTOK)
+    return {
+        "cagri": len(multi),
+        "kumelenen_haber": sum(len(m) for m in multi),
+        "prompt_karakter": total_chars,
+        "giris_token": round(input_tokens),
+        "cikis_token": output_tokens,
+        "maliyet_usd": round(cost, 4),
+    }
+
+
 # ---------------------------------------------------------------- raporlama
+
+def cluster_summary(clusters: list[list[dict]], total_rows: int) -> dict:
+    """Küme sayısı, kümelenme oranı ve ülke dağılımı özeti."""
+    sizes = [len(cluster) for cluster in clusters]
+    countries = [len({m["ulke"] for m in cluster if m["ulke"]}) for cluster in clusters]
+    return {
+        "kume_sayisi": len(clusters),
+        "kumelenen_haber": sum(sizes),
+        "kumelenme_orani": round(sum(sizes) / total_rows, 3) if total_rows else 0.0,
+        "ulke_2_plus": sum(1 for count in countries if count >= 2),
+        "ulke_3_plus": sum(1 for count in countries if count >= 3),
+        "tek_ulkeli": sum(1 for count in countries if count <= 1),
+        "ortalama_boyut": round(sum(sizes) / len(sizes), 2) if sizes else 0.0,
+    }
+
 
 def _load_cluster_groups(path: Path | None = None) -> dict[str, list[dict]]:
     target = Path(path) if path else _path(CLUSTERS_CSV)
@@ -462,6 +633,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--clusters", default=str(_path(CLUSTERS_CSV)))
     parser.add_argument("--gaps", default=str(_path(GAPS_CSV)))
     parser.add_argument("--compare", action="store_true", help="0.5/0.6/0.7 eşik taraması ve eski yöntem karşılaştırması")
+    parser.add_argument("--review", action="store_true", help="3+ ülkeli kümeleri inceleme dosyasına yaz")
+    parser.add_argument("--single", action="store_true", help="tek ülkeli küme/kopya başlık raporu")
+    parser.add_argument("--cost", action="store_true", help="çerçeve karşılaştırması maliyet tahmini (çağrı yapmaz)")
     parser.add_argument("--show", action="store_true", help="kümeleri yazdır")
     parser.add_argument("--top", type=int, default=10, help="yazdırılacak en büyük küme sayısı")
     parser.add_argument("--random-small", type=int, default=5, help="ek rastgele küçük küme sayısı")
@@ -478,6 +652,35 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Eşik %.2f: %d küme", args.threshold, len(clusters))
     write_clusters(clusters, Path(args.clusters))
     write_gaps(clusters, Path(args.gaps))
+
+    summary = cluster_summary(clusters, len(rows))
+    print(f"\n=== eşik {args.threshold:.2f} özeti ===")
+    print(f"  küme sayısı: {summary['kume_sayisi']} | kümelenen haber: {summary['kumelenen_haber']}"
+          f" ({summary['kumelenme_orani']:.2f}) | ortalama küme boyutu: {summary['ortalama_boyut']}")
+    print(f"  2+ ülkeli küme: {summary['ulke_2_plus']} | 3+ ülkeli küme: {summary['ulke_3_plus']}"
+          f" | tek ülkeli küme: {summary['tek_ulkeli']}")
+
+    if args.review:
+        review_path, review_count, cutoff = write_review(clusters)
+        print(f"\n3+ ülkeli {review_count} küme inceleme dosyasına yazıldı (ŞÜPHELİ eşiği {cutoff:.3f}): {review_path}")
+
+    if args.single:
+        rapor = single_country_report(clusters)
+        print("\n=== tek ülkeli kümeler ===")
+        print(f"  tek ülkeli küme: {rapor['tek_ulkeli_kume']} "
+              f"(tek kaynaklı: {rapor['tek_kaynakli_kume']}, çok kaynaklı: {rapor['cok_kaynakli_kume']})")
+        print(f"  birebir aynı başlık: {rapor['birebir_ayni_baslik']} | yakın kopya çift: {rapor['yakin_kopya_cift']}")
+        print("  kaynak kombinasyonları:")
+        for combo, count in rapor["kaynak_kombinasyonlari"].items():
+            print(f"    {combo:45} {count}")
+
+    if args.cost:
+        tahmin = cost_estimate(clusters)
+        print("\n=== çerçeve karşılaştırması maliyet tahmini (çağrı yapılmadı) ===")
+        print(f"  2+ ülkeli küme: {tahmin['cagri']} | küme başına en fazla {FRAME_MAX_HEADLINES} başlık")
+        print(f"  tahmini giriş token: {tahmin['giris_token']} | çıkış token: {tahmin['cikis_token']}"
+              f" (küme başına ~{FRAME_AVG_OUTPUT_TOKENS})")
+        print(f"  tahmini maliyet: ${tahmin['maliyet_usd']}")
 
     if args.compare:
         print("\n=== eşik taraması (yerel, API çağrısı yok) ===")

@@ -115,7 +115,7 @@ FEEDS = {
 CATEGORIES = ["ekonomi", "guvenlik", "siyaset", "toplum", "spor"]
 
 # --- Embedding tabanlı olay kümeleme (yerel, LLM çağrısı yok) ---
-CLUSTER_THRESHOLD = 0.6
+CLUSTER_THRESHOLD = 0.55
 EXCLUDED_CATEGORIES = ["spor"]
 EMBEDDING_EXCLUDE_SOURCES = ["coindesk", "cointelegraph"]  # ülke karşılaştırmasından hariç
 CLUSTER_MAX_DAYS = 3

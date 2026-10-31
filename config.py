@@ -114,6 +114,21 @@ FEEDS = {
 # Kategoriler
 CATEGORIES = ["ekonomi", "guvenlik", "siyaset", "toplum", "spor"]
 
+# --- Embedding tabanlı olay kümeleme (yerel, LLM çağrısı yok) ---
+CLUSTER_THRESHOLD = 0.6
+EXCLUDED_CATEGORIES = ["spor"]
+EMBEDDING_EXCLUDE_SOURCES = ["coindesk", "cointelegraph"]  # ülke karşılaştırmasından hariç
+CLUSTER_MAX_DAYS = 3
+CLUSTER_MAX_SIZE = 15
+EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+EMBEDDINGS_DIR = "data/processed/embeddings"
+CLUSTERS_CSV = "data/processed/clusters_embedding.csv"
+GAPS_CSV = "data/processed/gaps_embedding.csv"
+
+# Frame comparator entegrasyonu için hazır bayrak (henüz bağlanmadı, varsayılan kapalı).
+# Açıldığında tek ülkeli kümeler LLM karşılaştırmasına gönderilmemelidir.
+FRAME_SKIP_SINGLE_COUNTRY = False
+
 # Dosya yolları
 RAW_CSV = "data/raw/headlines.csv"
 PROCESSED_CSV = "data/processed/headlines_tagged.csv"

@@ -1,4 +1,5 @@
 # Agora yapılandırma dosyası
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -6,6 +7,11 @@ from dotenv import load_dotenv
 # (load_dotenv mevcut ortam değişkenlerini ezmez.)
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / ".env")
+
+# --- The News API (thenewsapi.com) ---
+# Anahtar kodda tutulmaz; .env dosyasındaki NEWS_API_KEY'den okunur.
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
+NEWS_API_URL = "https://api.thenewsapi.com/v1/news/all"
 
 # RSS kaynakları
 # Her kaynak: url, ulke (ISO 3166-1 alpha-2), dil (ISO 639-1),
@@ -160,7 +166,11 @@ BIST_REFERANS = "XU100.IS"
 # --- Piyasa çıkarımı (Adım B Aşama 3) ---
 ASSET_LISTESI = ["BTC-USD", "ETH-USD", "CL=F", "GC=F", "NG=F", "^GSPC", "XU100.IS", "TRY=X"]
 MAX_HABER_YASI_SAAT = 12
-MAX_TAHMIN_PER_RUN = 15
+MAX_TAHMIN_PER_RUN = 25
+# Aday küme koşulu (clusters_embedding.csv + clusters_market.csv):
+# en az 2 başlık VE en az 2 farklı kaynak. Ülke sayısı şartı yok; tek kaynaklı küme aday olmaz.
+MIN_KUME_BASLIK = 2
+MIN_KUME_KAYNAK = 2
 MARKET_OUTPUT = "data/processed/market_inference.json"
 MARKET_CACHE = "data/processed/market_cache.json"
 # --- LLM model adları ve fiyatlandırma ---

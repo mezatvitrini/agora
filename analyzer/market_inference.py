@@ -35,6 +35,8 @@ from config import (
     MAX_BASLIK_YASI_GUN,
     MAX_HABER_YASI_SAAT,
     MAX_TAHMIN_PER_RUN,
+    MIN_KUME_BASLIK,
+    MIN_KUME_KAYNAK,
     MARKET_CACHE,
     MARKET_OUTPUT,
     MODEL_KESIM_TARIHI,
@@ -170,6 +172,12 @@ def load_clusters(meta: dict[tuple[str, str], dict]) -> tuple[list[dict], Counte
                 "ulke": uye.get("ulke", ""),
                 "published": _published(satir.get("published", "")),
             })
+        if len(haberler) < MIN_KUME_BASLIK:
+            sayac["tek_baslik"] += 1
+            return
+        if len({h["kaynak"] for h in haberler}) < MIN_KUME_KAYNAK:
+            sayac["tek_kaynak"] += 1
+            return
         if kategori_zorunlu and not (kategoriler & KAPSAM_KATEGORILERI):
             sayac["kapsam_disi"] += 1
             return
@@ -486,6 +494,8 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
     farkli_olay = len({k["kume_id"] for k in kaydedilen})
     farkli_gun = len({k["olay_zamani"].date() for k in kaydedilen if k["olay_zamani"]})
     varlik_dagilimi = Counter(k["varlik"] for k in kaydedilen)
+    yon_dagilimi = Counter(k["varlik_yon"] for k in kaydedilen)
+    notr_kayit = sum(1 for k in kaydedilen if "notr" in (k["varlik_yon"], k["haber_ton"]))
 
     payload = {
         "uretim_zamani": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -494,6 +504,10 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
         "kume": len(secilen), "kayit": len(kaydedilen),
         "farkli_olay": farkli_olay, "farkli_gun": farkli_gun,
         "varlik_dagilimi": dict(varlik_dagilimi),
+        "yon_dagilimi": dict(yon_dagilimi),
+        "notr_kayit": notr_kayit,
+        "aday_sayisi": len(adaylar),
+        "kume_eleme": dict(atlanan),
         "reddedilen": dict(sayac),
         "basarisiz_kumeler": basarisiz,
         "istatistik": {
@@ -522,6 +536,10 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
           f"çıkış {TOKEN_USAGE['completion_tokens']} | maliyet: ${maliyet:.5f}")
     if uyari:
         print(f"  UYARI: {uyari}")
+    print(f"  aday: {len(adaylar)} | yazilan kayit: {len(kaydedilen)} | notr kayit: {notr_kayit}")
+    print(f"  varlik dagilimi: {dict(varlik_dagilimi)} | yon dagilimi: {dict(yon_dagilimi)}")
+    print(f"  kume eleme: {dict(atlanan)}")
+    print(f"  eleme sebepleri: {dict(sayac)}")
     return payload
 
 

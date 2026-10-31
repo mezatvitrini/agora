@@ -48,6 +48,9 @@ CLUSTER_COLUMNS = [
 ]
 GAP_COLUMNS = ["kume_id", "yazan_ulkeler", "yazmayan_ulkeler", "kapsama_orani"]
 REVIEW_PATH = "data/processed/review_clusters.txt"
+MARKET_CLUSTERS_CSV = "data/processed/clusters_market.csv"
+MARKET_SOURCES = ["coindesk", "cointelegraph"]
+MARKET_CATEGORY = "kripto"
 SUSPECT_RATIO = 0.2
 COST_INPUT_PER_MTOK = 0.27
 COST_OUTPUT_PER_MTOK = 1.10
@@ -124,6 +127,36 @@ def prepare_rows(rows: list[dict]) -> tuple[list[dict], Counter]:
             "day": _parse_day(row.get("published")),
             "categories": categories,
         })
+    return kept, skipped
+
+
+def prepare_market_rows(rows: list[dict]) -> tuple[list[dict], Counter]:
+    """Kripto/piyasa hattı: coindesk/cointelegraph ve 'kripto' kategorili başlıklar.
+
+    Ülke şartı yoktur (bu hat ülke karşılaştırmasına karışmaz), kategori zorunlu değildir.
+    """
+    kaynaklar = set(MARKET_SOURCES)
+    kept: list[dict] = []
+    skipped: Counter = Counter()
+    for row in rows:
+        title = (row.get("title") or "").strip()
+        source = (row.get("source") or "?").strip()
+        if not title:
+            skipped["baslik_yok"] += 1
+            continue
+        categories = _json_list(row.get("kategoriler"))
+        if source in kaynaklar or MARKET_CATEGORY in categories:
+            kept.append({
+                "title": title,
+                "source": source,
+                "ulke": (row.get("ulke") or "").strip(),
+                "dil": (row.get("dil") or "").strip(),
+                "kaynak_tipi": (row.get("kaynak_tipi") or "").strip(),
+                "day": _parse_day(row.get("published")),
+                "categories": categories,
+            })
+        else:
+            skipped["kapsam_disi"] += 1
     return kept, skipped
 
 
@@ -630,8 +663,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--threshold", type=float, default=CLUSTER_THRESHOLD)
     parser.add_argument("--max-days", type=int, default=CLUSTER_MAX_DAYS)
     parser.add_argument("--max-size", type=int, default=CLUSTER_MAX_SIZE)
-    parser.add_argument("--clusters", default=str(_path(CLUSTERS_CSV)))
+    parser.add_argument("--clusters", default=None, help="küme CSV yolu (market modunda varsayılan clusters_market.csv)")
     parser.add_argument("--gaps", default=str(_path(GAPS_CSV)))
+    parser.add_argument("--market", action="store_true",
+                        help="kripto/piyasa hattı: coindesk/cointelegraph + kripto kategorili başlıklar "
+                             "(ülke şartı yok, çıktı clusters_market.csv)")
     parser.add_argument("--compare", action="store_true", help="0.5/0.6/0.7 eşik taraması ve eski yöntem karşılaştırması")
     parser.add_argument("--review", action="store_true", help="3+ ülkeli kümeleri inceleme dosyasına yaz")
     parser.add_argument("--single", action="store_true", help="tek ülkeli küme/kopya başlık raporu")
@@ -640,8 +676,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--top", type=int, default=10, help="yazdırılacak en büyük küme sayısı")
     parser.add_argument("--random-small", type=int, default=5, help="ek rastgele küçük küme sayısı")
     args = parser.parse_args(argv)
+    if args.market:
+        args.clusters = args.clusters or str(_path(MARKET_CLUSTERS_CSV))
+    else:
+        args.clusters = args.clusters or str(_path(CLUSTERS_CSV))
 
-    rows, skipped = prepare_rows(load_rows(Path(args.input)))
+    if args.market:
+        rows, skipped = prepare_market_rows(load_rows(Path(args.input)))
+        logger.info("Piyasa hattı: coindesk/cointelegraph + '%s' kategorili başlıklar", MARKET_CATEGORY)
+    else:
+        rows, skipped = prepare_rows(load_rows(Path(args.input)))
     logger.info("Kümelenecek haber: %d (atlanan: %s)", len(rows), dict(skipped))
     if len(rows) < MIN_CLUSTER_SIZE:
         logger.error("Kümeleme için yeterli haber yok")
@@ -651,7 +695,8 @@ def main(argv: list[str] | None = None) -> None:
                             max_size=args.max_size)
     logger.info("Eşik %.2f: %d küme", args.threshold, len(clusters))
     write_clusters(clusters, Path(args.clusters))
-    write_gaps(clusters, Path(args.gaps))
+    if not args.market:
+        write_gaps(clusters, Path(args.gaps))
 
     summary = cluster_summary(clusters, len(rows))
     print(f"\n=== eşik {args.threshold:.2f} özeti ===")

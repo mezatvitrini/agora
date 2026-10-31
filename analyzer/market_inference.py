@@ -30,12 +30,16 @@ from config import (
     ASSET_LISTESI,
     CATEGORIES,
     CLUSTERS_CSV,
+    LLM_MODEL_API,
+    LLM_MODEL_ETIKET,
     MAX_BASLIK_YASI_GUN,
     MAX_HABER_YASI_SAAT,
     MAX_TAHMIN_PER_RUN,
     MARKET_CACHE,
     MARKET_OUTPUT,
     MODEL_KESIM_TARIHI,
+    PRICE_INPUT_PER_M,
+    PRICE_OUTPUT_PER_M,
     PROCESSED_CSV,
     REFERANS_VARLIK,
 )
@@ -47,7 +51,10 @@ logger = logging.getLogger("agora.market")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPT_VERSION = "m1"
-LLM_MODEL = "deepseek-chat"
+LLM_MODEL = LLM_MODEL_API  # istek ve önbellek anahtarında API adı kullanılır
+# Tracker'a yazılacak model etiketi: mevcut kayıtlarla uyum için ŞİMDİLİK API adı;
+# LLM_MODEL_ETIKET ("deepseek-flash") kullanıcı onayı sonrası devreye alınacak.
+MODEL_ADI_KAYIT = LLM_MODEL_API
 LLM_API_URL = "https://api.deepseek.com/chat/completions"
 LLM_TIMEOUT = 90
 LLM_MAX_RETRIES = 3
@@ -56,8 +63,8 @@ MAX_ONERI_PER_KUME = 3
 KAPSAM_KATEGORILERI = {"ekonomi", "kripto", "enerji", "teknoloji", "guvenlik"}
 MARKET_CLUSTER_PREFIX = "M"
 EMBED_CLUSTER_PREFIX = "U"
-COST_INPUT_PER_MTOK = 0.27
-COST_OUTPUT_PER_MTOK = 1.10
+COST_INPUT_PER_MTOK = PRICE_INPUT_PER_M
+COST_OUTPUT_PER_MTOK = PRICE_OUTPUT_PER_M
 AVG_OUTPUT_TOKENS = 700  # tahmin: küme başına çıktı (≤3 öneri)
 MAX_BASLIK = 300
 # Model "fiyat_hareketi_zaten_bildirilmis" diyecek kümeleri önceden tahmin etmek için kaba ipuçları
@@ -450,7 +457,7 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
             tarih=aday["olay_zamani"].date() if aday["olay_zamani"] else None,
             alinti_kanit=aday["alinti_kanit"],
             kume_id=aday["kume_id"],
-            model_adi=LLM_MODEL,
+            model_adi=MODEL_ADI_KAYIT,
             prompt_versiyonu=PROMPT_VERSION,
             kategori=aday["kategoriler"],
             haber_ton=aday["haber_ton"],

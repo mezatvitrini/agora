@@ -10,13 +10,22 @@ import re
 import time
 from pathlib import Path
 import requests
-from config import CATEGORIES, CATEGORY_DEFINITIONS, PROCESSED_CSV, RAW_CSV, TAG_CACHE
+from config import (
+    CATEGORIES,
+    CATEGORY_DEFINITIONS,
+    LLM_MODEL_API,
+    PRICE_INPUT_PER_M,
+    PRICE_OUTPUT_PER_M,
+    PROCESSED_CSV,
+    RAW_CSV,
+    TAG_CACHE,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("agora.tagger")
 
 LLM_API_URL = "https://api.deepseek.com/chat/completions"
-LLM_MODEL = "deepseek-chat"
+LLM_MODEL = LLM_MODEL_API  # istek ve önbellek anahtarında API adı kullanılır
 LLM_TIMEOUT = 60
 LLM_MAX_RETRIES = 3
 MAX_CATEGORIES = 3
@@ -34,9 +43,9 @@ AVG_INPUT_TOKENS = 210
 AVG_OUTPUT_TOKENS = 28
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# deepseek-chat fiyatları (USD / 1M token; önbellek isabetsiz giriş ve çıkış)
-COST_INPUT_PER_MTOK = 0.27
-COST_OUTPUT_PER_MTOK = 1.10
+# Fiyatlandırma config'ten (resmî fiyat sayfası doğrulanmadı)
+COST_INPUT_PER_MTOK = PRICE_INPUT_PER_M
+COST_OUTPUT_PER_MTOK = PRICE_OUTPUT_PER_M
 
 _TANIMLAR = "\n".join(f"- {ad}: {tanim}" for ad, tanim in CATEGORY_DEFINITIONS.items())
 

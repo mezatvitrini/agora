@@ -163,8 +163,17 @@ MAX_HABER_YASI_SAAT = 12
 MAX_TAHMIN_PER_RUN = 15
 MARKET_OUTPUT = "data/processed/market_inference.json"
 MARKET_CACHE = "data/processed/market_cache.json"
-# Doldurulana kadar sızıntı uyarısı verilir (kullanıcı dolduracak)
-MODEL_KESIM_TARIHI = ""
+# --- LLM model adları ve fiyatlandırma ---
+# API isteğinde kullanılan model adı (yanıt "deepseek-flash" dönüyor; sağlayıcı yönlendiriyor)
+LLM_MODEL_API = "deepseek-chat"
+# Tracker/etiketler için sabit etiket (önbellek anahtarları KASITLI olarak API adını kullanır,
+# böylece mevcut önbellekler geçerli kalır)
+LLM_MODEL_ETIKET = "deepseek-flash"
+# Fiyatlar: resmî fiyat sayfası doğrulanmadı; temkinli varsayım (USD / 1M token)
+PRICE_INPUT_PER_M = 0.14
+PRICE_OUTPUT_PER_M = 0.28
+# Doldurulana kadar sızıntı uyarısı verilir (temkinli üst sınır, resmî değil)
+MODEL_KESIM_TARIHI = "2026-01-31"
 
 # Başlık tazeliği: clustering ve piyasa çıkarımına yalnızca son N günün başlıkları girer
 MAX_BASLIK_YASI_GUN = 7

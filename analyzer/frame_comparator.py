@@ -24,6 +24,9 @@ from config import (
     FRAME_EMBEDDING_OUTPUT,
     FRAME_MAX_HEADLINES,
     FRAME_MIN_COUNTRIES,
+    LLM_MODEL_API,
+    PRICE_INPUT_PER_M,
+    PRICE_OUTPUT_PER_M,
     PROCESSED_CSV,
     RAW_CSV,
 )
@@ -42,16 +45,16 @@ FRAME_OUTPUT = "data/processed/frame_comparison.json"
 FRAME_CACHE = "data/processed/frame_cache.json"
 
 LLM_API_URL = "https://api.deepseek.com/chat/completions"
-LLM_MODEL = "deepseek-chat"
+LLM_MODEL = LLM_MODEL_API  # istek ve önbellek anahtarında API adı kullanılır
 LLM_TIMEOUT = 90
 LLM_MAX_RETRIES = 3
 LLM_MAX_TOKENS = 4000
 PREVIEW_LEN = 8000
 MAX_TITLE_CHARS = 300
 
-# deepseek-chat fiyatları (USD / 1M token; önbellek isabetsiz giriş ve çıkış)
-COST_INPUT_PER_MTOK = 0.27
-COST_OUTPUT_PER_MTOK = 1.10
+# Fiyatlandırma config'ten (resmî fiyat sayfası doğrulanmadı)
+COST_INPUT_PER_MTOK = PRICE_INPUT_PER_M
+COST_OUTPUT_PER_MTOK = PRICE_OUTPUT_PER_M
 # Ölçülen ortalama çıktı (grup/küme başına; 3 çağrıda 2.152 token gözlendi)
 FRAME_AVG_OUTPUT_TOKENS = 2150
 

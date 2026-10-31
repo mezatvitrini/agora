@@ -268,6 +268,8 @@ def get_summary_stats(path: Path | None = None, min_dilim: int = 30) -> dict:
     target = Path(path) if path else PREDICTIONS_CSV
     rows = load_rows(target)
     rows, _ = migrate_rows(rows)
+    # Kopya olarak işaretlenen kayıtlar istatistiklere girmez
+    rows = [row for row in rows if str(row.get("kopya") or "").strip().lower() not in ("true", "evet", "1")]
     tamamlanan = [row for row in rows if str(row.get("durum") or "").strip() == DURUM_DONE]
 
     def dilimle(anahtar) -> dict:

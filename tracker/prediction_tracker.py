@@ -53,6 +53,7 @@ NEW_COLUMNS = [
     "donem_tipi",
     "baslangic_fiyat",
     "baslangic_zamani",
+    "kopya",
 ]
 COLUMNS = LEGACY_COLUMNS + NEW_COLUMNS
 
@@ -245,12 +246,75 @@ def save_prediction(headline: str, asset: str, direction: str, confidence, tarih
         "gerekce": str(gerekce or "").strip(),
         "veri_tipi": tip,
         "donem_tipi": donem,
+        "kopya": "",
     })
     rows.append(row)
     save_rows(rows)
     logger.info("Tahmin kaydedildi: %s | %s | %s | %s", row["tahmin_id"], row["varlik"],
                 row["varlik_yon"], row["tahmin_tarihi"])
     return row
+
+
+def mark_copies(path: Path | None = None) -> list[dict]:
+    """Aynı varlık + aynı varlik_yon ve 24 saat içindeki kayıtları 'kopya' olarak işaretler.
+
+    Kural: 24 saatlik pencerede güveni yüksek olan (eşitlikte daha eski olan) kalır,
+    diğerleri kopya=True olur. Kayıt silinmez; yalnızca bayrak yazılır.
+    2. tur çalıştırma (idempotent): yeni kopya yoksa değişiklik yapmaz.
+    """
+    target = Path(path) if path else PREDICTIONS_CSV
+    rows = load_rows(target)
+    rows, _ = migrate_rows(rows)
+
+    def _guven(row: dict) -> float:
+        try:
+            return float(str(row.get("ai_guven_skoru") or 0).replace(",", "."))
+        except ValueError:
+            return 0.0
+
+    def _tarih(row: dict):
+        text = str(row.get("tahmin_tarihi") or "").strip()
+        try:
+            return date.fromisoformat(text[:10])
+        except ValueError:
+            return None
+
+    gruplar: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        if str(row.get("kopya") or "").strip().lower() in ("true", "evet", "1"):
+            continue  # zaten işaretli
+        anahtar = (str(row.get("varlik") or "").strip(), str(row.get("varlik_yon") or "").strip())
+        gruplar.setdefault(anahtar, []).append(row)
+
+    isaretlenen: list[dict] = []
+    for (varlik, yon), grup in gruplar.items():
+        if len(grup) < 2 or not yon:
+            continue
+        sirali = sorted((r for r in grup if _tarih(r)), key=lambda r: (_tarih(r), -_guven(r)))
+        korunan: dict | None = None
+        for row in sirali:
+            gun = _tarih(row)
+            if korunan is None:
+                korunan = row
+                continue
+            if abs((gun - _tarih(korunan)).days) < 1:
+                # Aynı gün/24 saat: güveni yüksek olan kalır
+                if _guven(row) > _guven(korunan):
+                    korunan["kopya"] = "evet"
+                    isaretlenen.append({"tahmin_id": korunan["tahmin_id"], "varlik": varlik,
+                                        "yon": yon, "tarih": korunan["tahmin_tarihi"]})
+                    korunan = row
+                else:
+                    row["kopya"] = "evet"
+                    isaretlenen.append({"tahmin_id": row["tahmin_id"], "varlik": varlik,
+                                        "yon": yon, "tarih": row["tahmin_tarihi"]})
+            else:
+                korunan = row
+
+    if isaretlenen:
+        save_rows(rows, target)
+        logger.info("Kopya olarak işaretlenen kayıt: %d", len(isaretlenen))
+    return isaretlenen
 
 
 def update_measurements(tahmin_id: str, values: dict, path: Path | None = None) -> dict:

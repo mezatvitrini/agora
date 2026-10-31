@@ -324,7 +324,8 @@ def _portfoy_engeli(aday: dict, kayitlar: list[dict], mevcut: list[dict]) -> str
         if row.get("varlik") != aday["varlik"] or row.get("varlik_yon") != aday["varlik_yon"]:
             continue
         try:
-            eski = dt_parser.parse(str(row.get("tahmin_tarihi") or "")).replace(tzinfo=None)
+            tarih_metni = str(row.get("tahmin_tarihi") or row.get("olay_zamani") or "")
+            eski = dt_parser.parse(tarih_metni).replace(tzinfo=None)
         except (ValueError, OverflowError, TypeError):
             continue
         if aday["olay_zamani"] and abs((aday["olay_zamani"] - eski).total_seconds()) < 24 * 3600:

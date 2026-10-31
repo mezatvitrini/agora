@@ -166,8 +166,9 @@ MARKET_CACHE = "data/processed/market_cache.json"
 # --- LLM model adları ve fiyatlandırma ---
 # API isteğinde kullanılan model adı (yanıt "deepseek-flash" dönüyor; sağlayıcı yönlendiriyor)
 LLM_MODEL_API = "deepseek-chat"
-# Tracker/etiketler için sabit etiket (önbellek anahtarları KASITLI olarak API adını kullanır,
-# böylece mevcut önbellekler geçerli kalır)
+# Tracker/etiketler için sabit etiket.
+# deepseek-chat = API takma adı; fiilen deepseek-flash (V4 Flash) modeline yönlendiriliyor;
+# tracker dilimlerinin bölünmemesi için etiket sabit.
 LLM_MODEL_ETIKET = "deepseek-flash"
 # Fiyatlar: resmî fiyat sayfası doğrulanmadı; temkinli varsayım (USD / 1M token)
 PRICE_INPUT_PER_M = 0.14

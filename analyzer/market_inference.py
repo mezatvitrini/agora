@@ -77,6 +77,8 @@ FIYAT_IPUCLARI = (
 )
 
 TOKEN_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0}
+# API yanıtındaki gerçek "model" alanı sayaçları (yönlendirme değişirse fark edilsin)
+MODEL_USAGE: dict[str, int] = {}
 
 _TON_ESLEME = {"olumlu": "olumlu", "pozitif": "olumlu", "olumsuz": "olumsuz", "negatif": "olumsuz",
                "notr": "notr", "nötr": "notr", "neutral": "notr"}
@@ -239,6 +241,8 @@ def _build_prompt(cluster: dict) -> str:
 def _record_usage(body: dict, content: str, prompt_chars: int) -> None:
     usage = body.get("usage") or {}
     TOKEN_USAGE["calls"] += 1
+    yanit_modeli = str(body.get("model") or "?")
+    MODEL_USAGE[yanit_modeli] = MODEL_USAGE.get(yanit_modeli, 0) + 1
     if usage:
         TOKEN_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
         TOKEN_USAGE["completion_tokens"] += int(usage.get("completion_tokens") or 0)
@@ -418,6 +422,7 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
                 "uyari": uyari}
 
     TOKEN_USAGE.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0})
+    MODEL_USAGE.clear()
     started = time.monotonic()
     sayac: Counter = Counter()
     adaylar: list[dict] = []
@@ -497,6 +502,7 @@ def run(mode: str, dry_run: bool, max_kume: int | None = None,
             "cikis_token": TOKEN_USAGE["completion_tokens"],
             "maliyet_usd": round(maliyet, 5),
             "sure_sn": round(elapsed, 1),
+            "yanit_modeli": dict(MODEL_USAGE),
         },
         "kayitlar": [{"tahmin_id": k["tahmin_id"], "kume_id": k["kume_id"], "varlik": k["varlik"],
                       "varlik_yon": k["varlik_yon"], "guven": k["guven"],

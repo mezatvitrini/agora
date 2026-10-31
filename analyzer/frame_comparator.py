@@ -72,6 +72,8 @@ PROMPT_VERSION = "v2"
 
 # İstek/token sayaçları (main() başında sıfırlanır)
 TOKEN_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0}
+# API yanıtındaki gerçek "model" alanı sayaçları (yönlendirme değişirse fark edilsin)
+MODEL_USAGE: dict[str, int] = {}
 
 # Başlık karşılaştırmasında anlam taşımayan kelimeler.
 STOPWORDS = {
@@ -373,6 +375,8 @@ def _estimate_cost() -> float:
 def _record_usage(body: dict, content: str, prompt_chars: int) -> None:
     usage = body.get("usage") or {}
     TOKEN_USAGE["calls"] += 1
+    yanit_modeli = str(body.get("model") or "?")
+    MODEL_USAGE[yanit_modeli] = MODEL_USAGE.get(yanit_modeli, 0) + 1
     if usage:
         TOKEN_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
         TOKEN_USAGE["completion_tokens"] += int(usage.get("completion_tokens") or 0)
@@ -785,6 +789,7 @@ def run_embedding_mode(args) -> None:
         return
 
     TOKEN_USAGE.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0})
+    MODEL_USAGE.clear()
     started = time.monotonic()
     hits = calls = failures = 0
     failures_list: list[tuple[str, str]] = []
@@ -835,6 +840,7 @@ def run_embedding_mode(args) -> None:
             "cikis_token": TOKEN_USAGE["completion_tokens"],
             "tahmini_maliyet_usd": round(_estimate_cost(), 5),
             "sure_sn": round(elapsed, 1),
+            "yanit_modeli": dict(MODEL_USAGE),
             "basarisiz_kumeler": [{"kume_id": kid, "neden": reason} for kid, reason in failures_list],
         },
         "kumeler": results,
@@ -847,6 +853,8 @@ def run_embedding_mode(args) -> None:
     logger.info("Süre: %.1f sn | token: giriş %d, çıkış %d | tahmini maliyet: $%.5f",
                 elapsed, TOKEN_USAGE["prompt_tokens"], TOKEN_USAGE["completion_tokens"],
                 _estimate_cost())
+    if MODEL_USAGE:
+        logger.info("API yanıt modeli: %s (istenen: %s)", MODEL_USAGE, LLM_MODEL)
     logger.info("Çıktı yazıldı: %s (%d küme)", args.output, len(results))
 
 
@@ -895,6 +903,7 @@ def main(argv: list[str] | None = None) -> None:
     cache_path, output_path = Path(args.cache), Path(args.output)
     cache = _load_cache(cache_path) if has_key else {}
     TOKEN_USAGE.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0})
+    MODEL_USAGE.clear()
     started = time.monotonic()
     hits = calls = failures = unsaved = 0
     failures_list: list[tuple[int, str]] = []
@@ -945,6 +954,7 @@ def main(argv: list[str] | None = None) -> None:
             "cikis_token": TOKEN_USAGE["completion_tokens"],
             "tahmini_maliyet_usd": round(_estimate_cost(), 5),
             "sure_sn": round(elapsed, 1),
+            "yanit_modeli": dict(MODEL_USAGE),
             "basarisiz_gruplar": [{"grup_id": gid, "neden": reason} for gid, reason in failures_list],
         },
         "gruplar": results,
@@ -957,6 +967,8 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Süre: %.1f sn | token: giriş %d, çıkış %d | tahmini maliyet: $%.5f",
                 elapsed, TOKEN_USAGE["prompt_tokens"], TOKEN_USAGE["completion_tokens"],
                 _estimate_cost())
+    if MODEL_USAGE:
+        logger.info("API yanıt modeli: %s (istenen: %s)", MODEL_USAGE, LLM_MODEL)
     if TOKEN_USAGE["usage_missing"]:
         logger.warning("%d istekte API token bilgisi dönmedi, değerler tahminidir",
                        TOKEN_USAGE["usage_missing"])

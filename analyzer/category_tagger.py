@@ -74,6 +74,8 @@ BATCH_SYSTEM_PROMPT = (
 
 # İstek/token sayaçları (main() başında sıfırlanır)
 TOKEN_USAGE = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0}
+# API yanıtındaki gerçek "model" alanı sayaçları (yönlendirme değişirse fark edilsin)
+MODEL_USAGE: dict[str, int] = {}
 # Hata/deneme sayaçları (main() başında sıfırlanır)
 RUN_STATS = {"retries": 0, "failed_requests": 0, "bad_json": 0}
 
@@ -163,6 +165,8 @@ def _post(messages: list[dict], max_tokens: int) -> tuple[str | None, dict]:
             return None, {}
         usage = body.get("usage") or {}
         TOKEN_USAGE["calls"] += 1
+        yanit_modeli = str(body.get("model") or "?")
+        MODEL_USAGE[yanit_modeli] = MODEL_USAGE.get(yanit_modeli, 0) + 1
         if usage:
             TOKEN_USAGE["prompt_tokens"] += int(usage.get("prompt_tokens") or 0)
             TOKEN_USAGE["completion_tokens"] += int(usage.get("completion_tokens") or 0)
@@ -294,6 +298,7 @@ def main(argv: list[str] | None = None) -> None:
         rows = list(csv.DictReader(fh))
 
     TOKEN_USAGE.update({"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "usage_missing": 0})
+    MODEL_USAGE.clear()
     RUN_STATS.update({"retries": 0, "failed_requests": 0, "bad_json": 0})
     started = time.monotonic()
 
@@ -371,6 +376,8 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Süre: %.1f sn | başarılı istek: %d | token: giriş %d, çıkış %d | tahmini maliyet: $%.5f",
                 elapsed, TOKEN_USAGE["calls"], TOKEN_USAGE["prompt_tokens"],
                 TOKEN_USAGE["completion_tokens"], _estimate_cost())
+    if MODEL_USAGE:
+        logger.info("API yanıt modeli: %s (istenen: %s)", MODEL_USAGE, LLM_MODEL)
     if TOKEN_USAGE["usage_missing"]:
         logger.warning("%d istekte API token bilgisi dönmedi, değerler tahminidir",
                        TOKEN_USAGE["usage_missing"])

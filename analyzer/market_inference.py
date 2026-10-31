@@ -53,7 +53,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROMPT_VERSION = "m1"
 LLM_MODEL = LLM_MODEL_API  # istek ve önbellek anahtarında API adı kullanılır
 # Tracker'a yazılacak model etiketi: mevcut kayıtlarla uyum için ŞİMDİLİK API adı;
-# LLM_MODEL_ETIKET ("deepseek-flash") kullanıcı onayı sonrası devreye alınacak.
+# LLM_MODEL_ETIKET="deepseek-flash" config'te bilgi olarak durur; kullanıcı kararıyla
+# tracker'a ve önbellek anahtarlarına API adı yazılır (mevcut kayıtlarla uyum).
 MODEL_ADI_KAYIT = LLM_MODEL_API
 LLM_API_URL = "https://api.deepseek.com/chat/completions"
 LLM_TIMEOUT = 90

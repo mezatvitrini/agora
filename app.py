@@ -5,7 +5,15 @@ from pathlib import Path
 
 PROCESSED_CSV = Path("data/processed/headlines_tagged.csv")
 FRAME_JSON = Path("data/processed/frame_comparison.json")
+FRAME_EMBEDDING_JSON = Path("data/processed/frame_comparison_embedding.json")
+GAPS_EMBEDDING_CSV = Path("data/processed/gaps_embedding.csv")
 PREDICTIONS_CSV = Path("data/predictions.csv")
+
+KAYNAK_TIPI_ETIKET = {
+    "devlet_baglantili": "devlet bağlantılı",
+    "ozel": "özel",
+    "ajans": "ajans",
+}
 
 st.set_page_config(page_title="Agora", page_icon="🏛️", layout="wide")
 
@@ -49,20 +57,63 @@ def _liste_metni(items):
 
 
 def _kaynak_panosu(analiz):
-    st.markdown(f"**{analiz.get('kaynak', '—')}**")
+    """v2 (çerçeve alanları) ve v1 (seçili kelime/aktif özne) şemalarını birlikte gösterir."""
+    baslik = f"**{analiz.get('kaynak', '—')}**"
+    if analiz.get("ulke"):
+        baslik += f" · {analiz['ulke']}"
+    st.markdown(baslik)
     st.caption(analiz.get("baslik", "—"))
-    st.markdown(f"**Aktif özne:** {analiz.get('aktif_ozne') or '—'}")
-    st.markdown(f"**Seçili kelimeler:** {_liste_metni(analiz.get('secili_kelimeler'))}")
-    st.markdown("**Verilen bilgiler**")
-    for bilgi in analiz.get("verilen_bilgiler") or ["—"]:
-        st.markdown(f"- {bilgi}")
-    st.markdown("**Atlanan bilgiler**")
-    for bilgi in analiz.get("atlanan_bilgiler") or ["—"]:
-        st.markdown(f"- {bilgi}")
-    if analiz.get("cerceve_notu"):
-        st.info(analiz["cerceve_notu"])
+
+    if "cerceve_ozeti" in analiz or "problem_tanimi" in analiz:
+        st.markdown(f"**Problem tanımı:** {analiz.get('problem_tanimi') or '—'}")
+        st.markdown(f"**Öne çıkan aktör:** {analiz.get('one_cikan_aktor') or '—'}")
+        st.markdown(f"**Ton:** {analiz.get('ton') or '—'}")
+        st.markdown(f"**Çerçeve:** {analiz.get('cerceve_ozeti') or '—'}")
+        st.caption(f"Alıntı: “{analiz.get('kisa_alinti') or 'belirsiz'}”")
+    else:
+        st.markdown(f"**Aktif özne:** {analiz.get('aktif_ozne') or '—'}")
+        st.markdown(f"**Seçili kelimeler:** {_liste_metni(analiz.get('secili_kelimeler'))}")
+        st.markdown("**Verilen bilgiler**")
+        for bilgi in analiz.get("verilen_bilgiler") or ["—"]:
+            st.markdown(f"- {bilgi}")
+        st.markdown("**Atlanan bilgiler**")
+        for bilgi in analiz.get("atlanan_bilgiler") or ["—"]:
+            st.markdown(f"- {bilgi}")
+        if analiz.get("cerceve_notu"):
+            st.info(analiz["cerceve_notu"])
     if analiz.get("_llm_atladi"):
         st.caption("Bu haber için model ayrıntılı analiz döndürmedi.")
+
+
+def _analiz_panolari(karsilastirma):
+    analizler = karsilastirma.get("kaynak_analizleri") or []
+    for baslangic in range(0, len(analizler), 3):
+        parca = analizler[baslangic:baslangic + 3]
+        kolonlar = st.columns(len(parca))
+        for kolon, analiz in zip(kolonlar, parca):
+            with kolon, st.container(border=True):
+                _kaynak_panosu(analiz)
+
+
+def _ortak_ayrisan_farklar(karsilastirma):
+    ortak = karsilastirma.get("ortak_bilgiler") or []
+    ayrisan = karsilastirma.get("ayrisan_noktalar") or []
+    farklar = karsilastirma.get("cerceve_farklari") or []
+    if ortak or ayrisan:
+        st.markdown("**Ortak bilgiler / ayrışan noktalar**")
+        sol, sag = st.columns(2)
+        with sol:
+            st.markdown("*Ortak bilgiler*")
+            for bilgi in ortak or ["—"]:
+                st.markdown(f"- {bilgi}")
+        with sag:
+            st.markdown("*Ayrışan noktalar*")
+            for nokta in ayrisan or ["—"]:
+                st.markdown(f"- {nokta}")
+    if farklar:
+        st.markdown("**Çerçeve farkları**")
+        for fark in farklar:
+            st.markdown(f"- **{fark.get('boyut') or '—'}:** {fark.get('aciklama', '')}")
 
 
 def _grup_goster(grup):
@@ -80,32 +131,8 @@ def _grup_goster(grup):
         elif karsilastirma.get("ozet"):
             st.success(karsilastirma["ozet"])
 
-        analizler = karsilastirma.get("kaynak_analizleri") or []
-        for baslangic in range(0, len(analizler), 3):
-            parca = analizler[baslangic:baslangic + 3]
-            kolonlar = st.columns(len(parca))
-            for kolon, analiz in zip(kolonlar, parca):
-                with kolon, st.container(border=True):
-                    _kaynak_panosu(analiz)
-
-        ortak = karsilastirma.get("ortak_bilgiler") or []
-        ayrisan = karsilastirma.get("ayrisan_noktalar") or []
-        farklar = karsilastirma.get("cerceve_farklari") or []
-        if ortak or ayrisan:
-            st.markdown("**Ortak bilgiler / ayrışan noktalar**")
-            sol, sag = st.columns(2)
-            with sol:
-                st.markdown("*Ortak bilgiler*")
-                for bilgi in ortak or ["—"]:
-                    st.markdown(f"- {bilgi}")
-            with sag:
-                st.markdown("*Ayrışan noktalar*")
-                for nokta in ayrisan or ["—"]:
-                    st.markdown(f"- {nokta}")
-        if farklar:
-            st.markdown("**Çerçeve farkları**")
-            for fark in farklar:
-                st.markdown(f"- **{fark.get('boyut') or '—'}:** {fark.get('aciklama', '')}")
+        _analiz_panolari(karsilastirma)
+        _ortak_ayrisan_farklar(karsilastirma)
 
         if haberler:
             st.markdown("**Haberler**")
@@ -114,6 +141,62 @@ def _grup_goster(grup):
                     f"- [{haber.get('kaynak', '—')}] {haber.get('baslik', '')} — "
                     f"[habere git]({haber.get('link', '')})"
                 )
+
+
+def _kapsama_disi():
+    """gaps_embedding.csv: kume_id -> yazmayan ülkeler."""
+    if not GAPS_EMBEDDING_CSV.exists():
+        return {}
+    try:
+        gaps = pd.read_csv(GAPS_EMBEDDING_CSV, dtype=str, keep_default_na=False)
+    except (OSError, pd.errors.ParserError, pd.errors.EmptyDataError):
+        return {}
+    sonuc = {}
+    for _, row in gaps.iterrows():
+        ulkeler = [u for u in str(row.get("yazmayan_ulkeler", "")).split(";") if u]
+        if ulkeler:
+            sonuc[row["kume_id"]] = ulkeler
+    return sonuc
+
+
+def _kume_goster(kume, gaps):
+    karsilastirma = kume.get("karsilastirma") or {}
+    uyumsuz = bool(karsilastirma.get("kume_uyumsuz"))
+    haberler = kume.get("haberler") or []
+    tipler = ", ".join(KAYNAK_TIPI_ETIKET.get(t, t) for t in kume.get("kaynak_tipleri") or [])
+    etiket = (
+        f"{kume.get('kume_id', '?')} · {kume.get('ulke_sayisi', '?')} ülke · "
+        f"uyum {kume.get('uyum_skoru', '—')} · {len(haberler)} haber"
+        + (" · KÜME UYUMSUZ" if uyumsuz else "")
+    )
+    with st.expander(etiket):
+        st.caption(f"Kaynaklar: {', '.join(kume.get('kaynaklar') or []) or '—'} · Tipler: {tipler or '—'}")
+        if kume.get("hata"):
+            st.warning(f"Karşılaştırma yapılamadı: {kume['hata']}")
+        elif uyumsuz:
+            ozet = karsilastirma.get("ozet") or "Başlıklar farklı olayları anlatıyor; karşılaştırma yapılmadı."
+            st.markdown(
+                f"<div style='color:#9aa0a6'>KÜME UYUMSUZ — {ozet}</div>",
+                unsafe_allow_html=True,
+            )
+        elif karsilastirma.get("ozet"):
+            st.success(karsilastirma["ozet"])
+
+        _analiz_panolari(karsilastirma)
+        _ortak_ayrisan_farklar(karsilastirma)
+
+        kapsama = gaps.get(kume.get("kume_id"), [])
+        if kapsama:
+            st.markdown(f"**Kapsama dışı (bu kümede yazmayan ülkeler):** {', '.join(kapsama)}")
+
+        if haberler:
+            st.markdown("**Haberler**")
+            for haber in haberler:
+                ozet = haber.get("ozet") or ""
+                satir = f"- [{haber.get('kaynak', '—')} | {haber.get('ulke', '—')}] {haber.get('baslik', '')}"
+                if ozet:
+                    satir += f" — {ozet[:160]}"
+                st.markdown(satir)
 
 
 # --- Tahmin takibi (Tracker) yardımcıları ---
@@ -152,38 +235,72 @@ tab_frame, tab_tracker, tab_haber = st.tabs([
 
 with tab_frame:
     st.markdown("### Çerçeveleme karşılaştırması")
-    if not FRAME_JSON.exists():
-        st.info("Çerçeve karşılaştırması bulunamadı. Önce `python main.py` çalıştırın.")
-    else:
-        try:
-            frame_data = json.loads(FRAME_JSON.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            frame_data = None
-            st.warning(f"Çerçeve dosyası okunamadı: {exc}")
-        if isinstance(frame_data, dict):
-            frame_gruplari = frame_data.get("gruplar") or []
-            st.caption(
-                f"{len(frame_gruplari)} olay grubu · model: {frame_data.get('model', '—')} · "
-                f"üretim: {frame_data.get('uretim_zamani', '—')}"
-            )
-            if frame_data.get("durum") == "api_anahtari_yok":
-                st.warning("LLM anahtarı bulunmadığı için yalnızca gruplama gösteriliyor.")
-            elif frame_data.get("durum") == "kismi":
-                st.warning("Bazı gruplar karşılaştırılamadı (LLM hatası).")
+    mod = st.radio("Kaynak", ["Eski gruplar", "Embedding kümeleri"], horizontal=True, key="frame_mod")
 
-            if secili_kaynak != "Tümü" or secili_kategoriler:
-                secili_haberler = set(zip(filtreli["source"], filtreli["title"]))
-                frame_gruplari = [
-                    grup for grup in frame_gruplari
-                    if any((h.get("kaynak"), h.get("baslik")) in secili_haberler
-                           for h in grup.get("haberler") or [])
-                ]
+    if mod == "Eski gruplar":
+        if not FRAME_JSON.exists():
+            st.info("Çerçeve karşılaştırması bulunamadı. Önce `python main.py` çalıştırın.")
+        else:
+            try:
+                frame_data = json.loads(FRAME_JSON.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                frame_data = None
+                st.warning(f"Çerçeve dosyası okunamadı: {exc}")
+            if isinstance(frame_data, dict):
+                frame_gruplari = frame_data.get("gruplar") or []
+                st.caption(
+                    f"{len(frame_gruplari)} olay grubu · model: {frame_data.get('model', '—')} · "
+                    f"üretim: {frame_data.get('uretim_zamani', '—')}"
+                )
+                if frame_data.get("durum") == "api_anahtari_yok":
+                    st.warning("LLM anahtarı bulunmadığı için yalnızca gruplama gösteriliyor.")
+                elif frame_data.get("durum") == "kismi":
+                    st.warning("Bazı gruplar karşılaştırılamadı (LLM hatası).")
+
+                if secili_kaynak != "Tümü" or secili_kategoriler:
+                    secili_haberler = set(zip(filtreli["source"], filtreli["title"]))
+                    frame_gruplari = [
+                        grup for grup in frame_gruplari
+                        if any((h.get("kaynak"), h.get("baslik")) in secili_haberler
+                               for h in grup.get("haberler") or [])
+                    ]
+                    if not frame_gruplari:
+                        st.info("Seçili filtrelerle eşleşen olay grubu yok. Filtreleri temizleyip tekrar deneyin.")
                 if not frame_gruplari:
-                    st.info("Seçili filtrelerle eşleşen olay grubu yok. Filtreleri temizleyip tekrar deneyin.")
-            if not frame_gruplari:
-                st.info("Karşılaştırılacak olay grubu bulunamadı.")
-            for grup in frame_gruplari:
-                _grup_goster(grup)
+                    st.info("Karşılaştırılacak olay grubu bulunamadı.")
+                for grup in frame_gruplari:
+                    _grup_goster(grup)
+    else:
+        if not FRAME_EMBEDDING_JSON.exists():
+            st.info("Embedding karşılaştırması bulunamadı. "
+                    "`python main.py --cluster-mode embedding` çalıştırın.")
+        else:
+            try:
+                emb_data = json.loads(FRAME_EMBEDDING_JSON.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                emb_data = None
+                st.warning(f"Embedding çıktısı okunamadı: {exc}")
+            if isinstance(emb_data, dict):
+                kumeler = emb_data.get("kumeler") or []
+                istatistik = emb_data.get("istatistik") or {}
+                st.caption(
+                    f"{len(kumeler)} küme · min ülke: {emb_data.get('min_countries', '—')} · "
+                    f"prompt: {emb_data.get('prompt_versiyonu', '—')} · model: {emb_data.get('model', '—')} · "
+                    f"maliyet: ${istatistik.get('tahmini_maliyet_usd', 0)}"
+                )
+                if emb_data.get("durum") == "api_anahtari_yok":
+                    st.warning("LLM anahtarı bulunmadığı için yalnızca kümeler gösteriliyor.")
+                elif emb_data.get("durum") == "kismi":
+                    st.warning("Bazı kümeler karşılaştırılamadı (LLM hatası).")
+                hatali = [k for k in kumeler if k.get("basarisiz")]
+                if hatali:
+                    st.warning("Başarısız kümeler: " + ", ".join(
+                        f"{k.get('kume_id')} ({k.get('hata')})" for k in hatali))
+                gaps = _kapsama_disi()
+                if not kumeler:
+                    st.info("Karşılaştırılacak küme bulunamadı.")
+                for kume in kumeler:
+                    _kume_goster(kume, gaps)
 
 with tab_tracker:
     st.markdown("### Tahmin Takibi (Tracker)")

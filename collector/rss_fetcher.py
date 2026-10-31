@@ -2,6 +2,7 @@
 from __future__ import annotations
 import csv
 import hashlib
+import html
 import logging
 import os
 import re
@@ -21,7 +22,9 @@ TIMEOUT_SECONDS = 15
 USER_AGENT = "AgoraBot/0.1"
 TITLE_SIMILARITY_THRESHOLD = 0.8
 MIN_CONTAINMENT_TOKENS = 3
-CSV_COLUMNS = ["source", "title", "link", "published", "fetched_at", "dedup_hash", "ulke", "dil", "kaynak_tipi"]
+SUMMARY_MAX_CHARS = 300
+CSV_COLUMNS = ["source", "title", "link", "published", "fetched_at", "dedup_hash",
+               "ulke", "dil", "kaynak_tipi", "summary"]
 META_COLUMNS = ("ulke", "dil", "kaynak_tipi")
 _TR_FOLD = str.maketrans({
     "ı": "i", "ş": "s", "ğ": "g", "ü": "u", "ö": "o", "ç": "c",
@@ -39,6 +42,17 @@ class Headline:
     ulke: str = ""
     dil: str = ""
     kaynak_tipi: str = ""
+    summary: str = ""
+
+
+def _clean_summary(value: str, limit: int = SUMMARY_MAX_CHARS) -> str:
+    """RSS özetini düz metne çevirir: HTML etiketleri/varlıkları temizlenir, kısaltılır."""
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = html.unescape(text)
+    text = " ".join(text.split())
+    return text[:limit].strip()
 
 def _feed_meta(source: str, value) -> dict:
     """FEEDS kaydını url/ulke/dil/kaynak_tipi sözlüğüne çevirir; eski metin biçimini de kabul eder."""
@@ -80,10 +94,12 @@ def _fetch_feed(source: str, feed) -> list[Headline]:
         if not title or not link:
             continue
         published = entry.get("published") or entry.get("updated") or ""
+        summary = _clean_summary(entry.get("summary") or entry.get("description") or "")
         items.append(Headline(
             source=source, title=title, link=link, published=published, fetched_at=now,
             dedup_hash=_make_hash(source, title, link),
             ulke=meta["ulke"], dil=meta["dil"], kaynak_tipi=meta["kaynak_tipi"],
+            summary=summary,
         ))
     logger.info("Kaynak çekildi: %s (%d başlık)", source, len(items))
     return items

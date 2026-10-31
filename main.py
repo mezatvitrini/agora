@@ -1,6 +1,7 @@
 """Agora - ana çalıştırma dosyası."""
 import sys
 import os
+import argparse
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from collector.rss_fetcher import collect
@@ -8,10 +9,15 @@ from analyzer.category_tagger import main as tag
 from analyzer.frame_comparator import main as compare_frames
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Agora - haber toplama ve çerçeveleme hattı")
+    parser.add_argument("--cluster-mode", choices=["legacy", "embedding"], default="legacy",
+                        help="Çerçeve karşılaştırması için kümeleme yöntemi (varsayılan: legacy)")
+    args = parser.parse_args()
+
     print("1. RSS toplanıyor...")
     collect()
     print("2. Kategoriler etiketleniyor...")
     tag()
-    print("3. Çerçeve karşılaştırması yapılıyor...")
-    compare_frames([])
+    print(f"3. Çerçeve karşılaştırması yapılıyor... (mod: {args.cluster_mode})")
+    compare_frames(["--cluster-mode", args.cluster_mode])
     print("[OK] Agora tamamlandı.")

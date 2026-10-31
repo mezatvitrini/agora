@@ -129,6 +129,12 @@ GAPS_CSV = "data/processed/gaps_embedding.csv"
 # Açıldığında tek ülkeli kümeler LLM karşılaştırmasına gönderilmemelidir.
 FRAME_SKIP_SINGLE_COUNTRY = False
 
+# Frame comparator: embedding küme modu (--cluster-mode embedding)
+FRAME_MIN_COUNTRIES = 3
+FRAME_MAX_HEADLINES = 8
+FRAME_EMBEDDING_OUTPUT = "data/processed/frame_comparison_embedding.json"
+FRAME_EMBEDDING_CACHE = "data/processed/frame_embedding_cache.json"
+
 # Dosya yolları
 RAW_CSV = "data/raw/headlines.csv"
 PROCESSED_CSV = "data/processed/headlines_tagged.csv"

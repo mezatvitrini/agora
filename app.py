@@ -69,7 +69,11 @@ def _kaynak_panosu(analiz):
         st.markdown(f"**Öne çıkan aktör:** {analiz.get('one_cikan_aktor') or '—'}")
         st.markdown(f"**Ton:** {analiz.get('ton') or '—'}")
         st.markdown(f"**Çerçeve:** {analiz.get('cerceve_ozeti') or '—'}")
-        st.caption(f"Alıntı: “{analiz.get('kisa_alinti') or 'belirsiz'}”")
+        dogrulama = analiz.get("alinti_dogrulandi")
+        st.caption(f"Alıntı: “{analiz.get('kisa_alinti') or 'belirsiz'}”"
+                   + (" ⚠️ doğrulanamadı" if dogrulama == "yok" else ""))
+        if dogrulama == "yok":
+            st.warning("⚠️ Alıntı bu kaynağın başlığında bulunamadı (kaynak metne dayanmıyor olabilir).")
     else:
         st.markdown(f"**Aktif özne:** {analiz.get('aktif_ozne') or '—'}")
         st.markdown(f"**Seçili kelimeler:** {_liste_metni(analiz.get('secili_kelimeler'))}")

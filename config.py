@@ -111,8 +111,15 @@ FEEDS = {
     },
 }
 
-# Kategoriler
-CATEGORIES = ["ekonomi", "guvenlik", "siyaset", "toplum", "spor"]
+# Kategoriler (çok etiketli)
+CATEGORIES = ["ekonomi", "guvenlik", "siyaset", "toplum", "spor", "kripto", "teknoloji", "enerji"]
+
+# Prompt'ta kullanılan kısa kategori tanımları
+CATEGORY_DEFINITIONS = {
+    "kripto": "coin, token, borsa, regülasyon, ETF",
+    "enerji": "petrol, doğalgaz, elektrik, OPEC",
+    "teknoloji": "yapay zeka, çip, yazılım şirketleri",
+}
 
 # --- Embedding tabanlı olay kümeleme (yerel, LLM çağrısı yok) ---
 CLUSTER_THRESHOLD = 0.55

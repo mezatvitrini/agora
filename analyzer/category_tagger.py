@@ -10,7 +10,7 @@ import re
 import time
 from pathlib import Path
 import requests
-from config import RAW_CSV, PROCESSED_CSV, CATEGORIES, TAG_CACHE
+from config import CATEGORIES, CATEGORY_DEFINITIONS, PROCESSED_CSV, RAW_CSV, TAG_CACHE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger("agora.tagger")
@@ -26,17 +26,27 @@ BATCH_SIZE = 1
 BATCH_MAX_TOKENS = 900
 SINGLE_MAX_TOKENS = 200
 MAX_TITLE_CHARS = 300
+# Önbellek sürümü: kategori listesi/prompt değişince artırılır (eski kayıtlar korunur)
+TAG_VERSION = "k2"
+# Ölçülen ortalama (tek tek mod): çağrı başına süre ve token
+AVG_CALL_SECONDS = 1.43
+AVG_INPUT_TOKENS = 210
+AVG_OUTPUT_TOKENS = 28
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # deepseek-chat fiyatları (USD / 1M token; önbellek isabetsiz giriş ve çıkış)
 COST_INPUT_PER_MTOK = 0.27
 COST_OUTPUT_PER_MTOK = 1.10
 
+_TANIMLAR = "\n".join(f"- {ad}: {tanim}" for ad, tanim in CATEGORY_DEFINITIONS.items())
+
 SYSTEM_PROMPT = (
     "Sen bir Türkçe haber analistisin. Verilen haber başlığını analiz edip "
     "yalnızca geçerli JSON döndür, başka açıklama yazma.\n"
     f"Kategoriler şu listeden seçilmeli: {', '.join(CATEGORIES)}.\n"
-    f"Her başlığa 1 ile {MAX_CATEGORIES} arasında kategori ata; hiçbiri uymuyorsa boş liste döndür.\n"
+    f"Kategori tanımları:\n{_TANIMLAR}\n"
+    f"Her başlığa 1 ile {MAX_CATEGORIES} arasında kategori ata; hiçbiri uymuyorsa boş liste döndür. "
+    "Birden fazla kategori uyuyorsa hepsini yaz (çok etiketli).\n"
     f"Aktörler: başlıkta adı geçen kişi, kurum, ülke veya gruplar (en fazla {MAX_ACTORS}).\n"
     'JSON şeması: {"kategoriler": ["..."], "aktorler": ["..."]}'
 )
@@ -45,7 +55,9 @@ BATCH_SYSTEM_PROMPT = (
     "Sen bir Türkçe haber analistisin. Sana numaralı haber başlıkları verilir. "
     "Her başlığı ayrı ayrı analiz et ve yalnızca geçerli JSON döndür, başka açıklama yazma.\n"
     f"Kategoriler şu listeden seçilmeli: {', '.join(CATEGORIES)}.\n"
-    f"Her başlığa 1 ile {MAX_CATEGORIES} arasında kategori ata; hiçbiri uymuyorsa boş liste döndür.\n"
+    f"Kategori tanımları:\n{_TANIMLAR}\n"
+    f"Her başlığa 1 ile {MAX_CATEGORIES} arasında kategori ata; hiçbiri uymuyorsa boş liste döndür. "
+    "Birden fazla kategori uyuyorsa hepsini yaz (çok etiketli).\n"
     f"Aktörler: başlıkta adı geçen kişi, kurum, ülke veya gruplar (en fazla {MAX_ACTORS}).\n"
     'JSON şeması: {"sonuclar": [{"id": 1, "kategoriler": ["..."], "aktorler": ["..."]}]}\n'
     "Verilen her numara için tam bir kayıt döndür; 'id' alanı başlığın numarası olmalı."
@@ -237,7 +249,8 @@ def _save_cache(path: Path, cache: dict[str, dict]) -> None:
 
 
 def _cache_key(row: dict) -> str:
-    return (row.get("dedup_hash") or "").strip() or f"t:{row.get('title', '').strip().lower()}"
+    temel = (row.get("dedup_hash") or "").strip() or f"t:{row.get('title', '').strip().lower()}"
+    return f"{TAG_VERSION}|{temel}"
 
 
 def _estimate_cost() -> float:
@@ -254,6 +267,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Agora - haber başlığı etiketleyici")
     parser.add_argument("--limit", type=int, default=0, help="En fazla kaç yeni başlık etiketlensin (0 = tümü)")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="İstek başına başlık sayısı")
+    parser.add_argument("--dry-run", action="store_true", help="LLM çağrısı yapmadan sayı/süre/maliyet tahmini")
     args = parser.parse_args(argv)
 
     input_path = Path(RAW_CSV)
@@ -290,6 +304,18 @@ def main(argv: list[str] | None = None) -> None:
         pending.append((index, key))
 
     batch_size = max(1, args.batch_size)
+    if args.dry_run:
+        sure = len(pending) * AVG_CALL_SECONDS
+        maliyet = (len(pending) * AVG_INPUT_TOKENS / 1e6 * COST_INPUT_PER_MTOK
+                   + len(pending) * AVG_OUTPUT_TOKENS / 1e6 * COST_OUTPUT_PER_MTOK)
+        print("\n=== DRY RUN (LLM çağrısı yapılmadı) ===")
+        print(f"  kategori sürümü: {TAG_VERSION} | kategori sayısı: {len(CATEGORIES)}")
+        print(f"  toplam başlık: {len(rows)} | önbellek isabeti: {hits} | yeniden etiketlenecek: {len(pending)}")
+        print(f"  mod: {'tek tek' if batch_size == 1 else f'toplu ({batch_size}/istek)'} | "
+              f"istek sayısı: {math.ceil(len(pending) / batch_size)}")
+        print(f"  tahmini süre: {sure / 60:.1f} dk | tahmini maliyet: ${maliyet:.4f} "
+              f"(çağrı başına ~{AVG_INPUT_TOKENS} giriş / ~{AVG_OUTPUT_TOKENS} çıkış token)")
+        return
     batch_calls = 0
     single_calls = 0
     failures = 0

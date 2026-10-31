@@ -1,30 +1,37 @@
 """Agora - tahmin değerlendirici.
 
-'beklemede' olan tahminleri okur, tahmin tarihinden 1 ve 7 gün sonraki kapanışı
-price_fetcher ile çeker ve anormal getiriyi (varlık getirisi - referans endeks
-getirisi) hesaplayarak satırı 'tamamlandi' yapar.
-
-Anormal getiri: kripto varlıklarda referans BTC-USD, hisselerde XU100.IS.
+Bekleyen tahminler için:
+- Başlangıç fiyatı: tahmin anından SONRAKİ ilk kapanış (look-ahead önleme;
+  kripto 7/24 olduğu için tahmin gününün kapanışı, borsa için sonraki işlem günü kapanışı).
+- Ham getiri (1g/7g) ve referans varsa anormal getiri (ham - referans getirisi).
+- Referans: config.REFERANS_VARLIK (yoksa BIST hisseleri XU100.IS). Referans yoksa
+  anormal getiri boş bırakılır, ölçüm ham getiriye dayanır ("olcum_tipi" = ham).
+- isabet: varlik_yon ile seçilen getirinin (anormal varsa anormal, yoksa ham) işareti
+  uyuşuyorsa True; notr için |getiri| < %1 ise True.
 Değerler yüzde puan olarak yazılır (1.25 = %1,25).
 """
 from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from pathlib import Path
-import pandas as pd
+
 from tracker.price_fetcher import (
-    LOOKBACK_DAYS,
-    benchmark_symbol,
+    close_on_or_after,
     close_on_or_before,
     fetch_history,
-    latest_date,
+    get_start_price,
+    is_crypto,
+    referans_varlik,
     to_symbol,
 )
 from tracker.prediction_tracker import (
     DURUM_DONE,
     DURUM_PENDING,
+    OLCUM_ALANLARI,
     PREDICTIONS_CSV,
+    YON_FROM_DUYGU,
     load_rows,
+    migrate_rows,
     save_rows,
 )
 
@@ -32,8 +39,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 logger = logging.getLogger("agora.evaluator")
 
 HORIZONS = (1, 7)
-RETURN_COLUMNS = {1: "gerceklesen_getiri_1g", 7: "gerceklesen_getiri_7g"}
-EXTRA_DAYS = 3  # son horizon için fiyatın yayınlanmasını bekleme payı
+EXTRA_DAYS = 3
+NOTR_ESIK = 1.0  # notr tahminde |getiri| bu yüzdenin altındaysa isabet
 
 
 def _parse_day(value: str) -> date | None:
@@ -47,38 +54,46 @@ def _parse_day(value: str) -> date | None:
         return None
 
 
-def _anomaly(asset_series: pd.Series, bench_series: pd.Series, base_day: date, target_day: date):
-    """(varlık getirisi - referans getirisi) yüzde puan; veri eksikse None."""
-    asset_base = close_on_or_before(asset_series, base_day)
-    bench_base = close_on_or_before(bench_series, base_day)
-    asset_now = close_on_or_before(asset_series, target_day)
-    bench_now = close_on_or_before(bench_series, target_day)
-    if not all((asset_base, bench_base, asset_now, bench_now)):
-        return None
-    if not all(price[0] > 0 for price in (asset_base, bench_base)):
-        return None
-    asset_return = (asset_now[0] / asset_base[0] - 1) * 100
-    bench_return = (bench_now[0] / bench_base[0] - 1) * 100
-    value = round(asset_return - bench_return, 2)
-    return 0.0 if abs(value) < 0.005 else value
+def _pct(value: float) -> str:
+    return f"{value:.2f}"
 
 
-def _write_result(row: dict, values: dict[int, float]) -> None:
-    row["durum"] = DURUM_DONE
-    for horizon, column in RETURN_COLUMNS.items():
-        row[column] = f"{values[horizon]:.2f}"
+def _isabet(yon: str, getiri: float | None) -> str:
+    if getiri is None:
+        return ""
+    if yon == "yukari":
+        return "True" if getiri > 0 else "False"
+    if yon == "asagi":
+        return "True" if getiri < 0 else "False"
+    return "True" if abs(getiri) < NOTR_ESIK else "False"
 
 
-def evaluate_predictions(path: Path | None = None) -> dict:
-    """Bekleyen tahminleri değerlendirir; özet sözlüğü döndürür."""
+def _horizon_price(series, start_day: date, horizon: int):
+    hedef = start_day + timedelta(days=horizon)
+    return close_on_or_after(series, hedef, lookahead_days=EXTRA_DAYS + 2)
+
+
+def _referans_degeri(ref_series, start_day: date, horizon: int):
+    hedef = start_day + timedelta(days=horizon)
+    return close_on_or_after(ref_series, hedef, lookahead_days=EXTRA_DAYS + 2)
+
+
+def evaluate_predictions(path: Path | None = None, tahmin_ids: list[str] | None = None) -> dict:
+    """Bekleyen tahminleri (veya verilen tahmin_id'leri) değerlendirir."""
     target = Path(path) if path else PREDICTIONS_CSV
     if not target.exists():
         logger.error("Tahmin dosyası bulunamadı: %s", target)
         return {"toplam": 0, "beklemede": 0, "tamamlanan": 0, "bekleyen": 0, "detay": []}
 
     rows = load_rows(target)
-    pending = [row for row in rows if str(row.get("durum") or "").strip() == DURUM_PENDING]
-    logger.info("%d tahmin okundu, %d tanesi beklemede", len(rows), len(pending))
+    rows, _ = migrate_rows(rows)
+    if tahmin_ids:
+        istenen = {str(t).strip() for t in tahmin_ids}
+        pending = [row for row in rows if str(row.get("tahmin_id") or "").strip() in istenen]
+        logger.info("%d tahmin yeniden değerlendirilecek: %s", len(pending), ", ".join(sorted(istenen)))
+    else:
+        pending = [row for row in rows if str(row.get("durum") or "").strip() == DURUM_PENDING]
+        logger.info("%d tahmin okundu, %d tanesi beklemede", len(rows), len(pending))
 
     summary = {"toplam": len(rows), "beklemede": len(pending), "tamamlanan": 0,
                "bekleyen": 0, "detay": []}
@@ -86,76 +101,106 @@ def evaluate_predictions(path: Path | None = None) -> dict:
         logger.info("Değerlendirilecek beklemede tahmin yok")
         return summary
 
-    prediction_days = [_parse_day(row.get("tahmin_tarihi", "")) for row in pending]
-    valid_days = [day for day in prediction_days if day]
-    if not valid_days:
-        logger.warning("Geçerli tahmin tarihi bulunamadı")
-        return summary
-
-    start = min(valid_days) - timedelta(days=LOOKBACK_DAYS)
-    # Gelecekteki tarihleri istemek yfinance'ten boş yanıt döndürür; bugünle sınırlıyoruz.
-    end = min(max(valid_days) + timedelta(days=max(HORIZONS) + EXTRA_DAYS), date.today())
-    cache: dict[str, pd.Series] = {}
-
-    def series(symbol: str) -> pd.Series:
-        if symbol not in cache:
-            cache[symbol] = fetch_history(symbol, start, end)
-        return cache[symbol]
-
-    for row, base_day in zip(pending, prediction_days):
-        prediction_id = row.get("tahmin_id", "?")
-        if base_day is None:
-            summary["bekleyen"] += 1
-            continue
+    for row in pending:
+        tahmin_id = row.get("tahmin_id", "?")
+        day = _parse_day(row.get("tahmin_tarihi", ""))
         asset = str(row.get("varlik") or "").strip()
+        if day is None or not asset:
+            summary["bekleyen"] += 1
+            continue
         symbol = to_symbol(asset)
-        if not symbol:
-            logger.warning("%s: varlık boş, atlandı", prediction_id)
+        referans = referans_varlik(asset)
+        surekli = is_crypto(asset) or symbol.endswith("=X") or symbol.endswith("=F") or symbol.startswith("^")
+
+        baslangic = get_start_price(asset, day)
+        if baslangic is None or baslangic[0] is None:
+            logger.warning("%s: başlangıç fiyatı yok, beklemede", tahmin_id)
             summary["bekleyen"] += 1
             continue
-        bench = benchmark_symbol(asset)
-        if bench == symbol:
-            logger.info("%s: %s kendi referansı, anormal getiri 0 olacak", prediction_id, symbol)
+        baslangic_fiyat, baslangic_gun = baslangic
 
-        asset_series = series(symbol)
-        bench_series = series(bench)
-        # Fiyat serisi hedef güne ulaşmadıysa (gelecek tarih) değerlendirme yapılmaz.
-        asset_latest = latest_date(asset_series)
-        bench_latest = latest_date(bench_series)
+        pencere_bas = baslangic_gun
+        pencere_son = min(baslangic_gun + timedelta(days=max(HORIZONS) + EXTRA_DAYS), date.today())
+        asset_series = fetch_history(symbol, pencere_bas, pencere_son)
+        if asset_series.empty:
+            summary["bekleyen"] += 1
+            continue
 
-        values: dict[int, float] = {}
-        incomplete = False
+        ref_series = None
+        ref_baslangic = None
+        if referans:
+            ref_series = fetch_history(referans, pencere_bas, pencere_son)
+            ref_start = close_on_or_before(ref_series, baslangic_gun)
+            if ref_start is None:
+                ref_start = close_on_or_after(ref_series, baslangic_gun)
+            ref_baslangic = ref_start[0] if ref_start else None
+            if ref_baslangic is None:
+                logger.info("%s: referans (%s) başlangıç fiyatı yok; ölçüm ham getiriye düşecek",
+                            tahmin_id, referans)
+                ref_series = None
+
+        ham: dict[int, float] = {}
+        anormal: dict[int, float] = {}
+        eksik = False
         for horizon in HORIZONS:
-            target_day = base_day + timedelta(days=horizon)
-            if asset_latest is None or asset_latest < target_day:
-                incomplete = True
+            fiyat = _horizon_price(asset_series, baslangic_gun, horizon)
+            if fiyat is None:
+                eksik = True
                 break
-            if bench_latest is None or bench_latest < target_day:
-                incomplete = True
-                break
-            value = _anomaly(asset_series, bench_series, base_day, target_day)
-            if value is None:
-                incomplete = True
-                break
-            values[horizon] = value
-        if incomplete:
-            logger.info("%s: %d günlük fiyat henüz yok, beklemede bırakıldı",
-                        prediction_id, HORIZONS[len(values)])
+            ham[horizon] = (fiyat[0] / baslangic_fiyat - 1) * 100
+            if ref_series is not None and ref_baslangic:
+                ref_fiyat = _referans_degeri(ref_series, baslangic_gun, horizon)
+                if ref_fiyat is None:
+                    eksik = True
+                    break
+                ref_getiri = (ref_fiyat[0] / ref_baslangic - 1) * 100
+                anormal[horizon] = ham[horizon] - ref_getiri
+        if eksik:
+            logger.info("%s: horizon fiyatları henüz yok, beklemede bırakıldı", tahmin_id)
             summary["bekleyen"] += 1
             continue
 
-        _write_result(row, values)
+        olcum_tipi = "anormal" if anormal else "ham"
+        yon = (row.get("varlik_yon") or "").strip() or YON_FROM_DUYGU.get(
+            (row.get("haber_ton") or row.get("ai_tahmini") or "").strip(), "notr")
+
+        deger = {
+            "baslangic_fiyat": _pct(baslangic_fiyat) if baslangic_fiyat is not None else "",
+            "baslangic_zamani": baslangic_gun.isoformat(),
+            "getiri_ham_1g": _pct(ham[1]),
+            "getiri_ham_7g": _pct(ham[7]),
+            "anormal_getiri_1g": _pct(anormal[1]) if anormal else "",
+            "anormal_getiri_7g": _pct(anormal[7]) if anormal else "",
+            "olcum_tipi": olcum_tipi,
+            "isabet_1g": _isabet(yon, anormal.get(1) if olcum_tipi == "anormal" else ham[1]),
+            "isabet_7g": _isabet(yon, anormal.get(7) if olcum_tipi == "anormal" else ham[7]),
+            "durum": DURUM_DONE,
+        }
+        izinsiz = set(deger) - OLCUM_ALANLARI
+        if izinsiz:  # kayıt değiştirilemez ilkesinin koruması
+            raise ValueError(f"Ölçüm dışı alan yazılmaya çalışıldı: {sorted(izinsiz)}")
+        row.update({k: str(v) for k, v in deger.items()})
+        row["referans_varlik"] = referans or ""
+
         summary["tamamlanan"] += 1
         summary["detay"].append({
-            "tahmin_id": prediction_id,
+            "tahmin_id": tahmin_id,
             "varlik": asset,
-            "referans": bench,
-            "tahmin_tarihi": base_day.isoformat(),
-            "anormal_getiri_1g": values[1],
-            "anormal_getiri_7g": values[7],
+            "referans": referans,
+            "olcum_tipi": olcum_tipi,
+            "baslangic_fiyat": deger["baslangic_fiyat"],
+            "baslangic_zamani": deger["baslangic_zamani"],
+            "getiri_ham_1g": deger["getiri_ham_1g"],
+            "getiri_ham_7g": deger["getiri_ham_7g"],
+            "anormal_getiri_1g": deger["anormal_getiri_1g"],
+            "anormal_getiri_7g": deger["anormal_getiri_7g"],
+            "isabet_1g": deger["isabet_1g"],
+            "isabet_7g": deger["isabet_7g"],
         })
-        logger.info("%s: %s 1g=%.2f 7g=%.2f (referans %s)", prediction_id, asset,
-                    values[1], values[7], bench)
+        logger.info("%s: %s | %s | ham 1g=%s 7g=%s | anormal 1g=%s 7g=%s | isabet 1g=%s 7g=%s",
+                    tahmin_id, asset, olcum_tipi, deger["getiri_ham_1g"], deger["getiri_ham_7g"],
+                    deger["anormal_getiri_1g"] or "—", deger["anormal_getiri_7g"] or "—",
+                    deger["isabet_1g"], deger["isabet_7g"])
 
     save_rows(rows, target)
     logger.info("Değerlendirme bitti: %d tamamlandı, %d beklemede kaldı",
@@ -163,5 +208,94 @@ def evaluate_predictions(path: Path | None = None) -> dict:
     return summary
 
 
+# ---------------------------------------------------------------- istatistikler
+
+def _secili_getiri(row: dict, horizon: int) -> float | None:
+    kolon = ("anormal_getiri" if (row.get("olcum_tipi") or "").strip() == "anormal"
+             else "getiri_ham") + f"_{horizon}g"
+    try:
+        return float(str(row.get(kolon) or "").replace(",", "."))
+    except ValueError:
+        return None
+
+
+def _oran(rows: list[dict], horizon: int) -> float | None:
+    degerler = []
+    for row in rows:
+        isabet = str(row.get(f"isabet_{horizon}g") or "").strip().lower()
+        if isabet in ("true", "false"):
+            degerler.append(1.0 if isabet == "true" else 0.0)
+    return round(sum(degerler) / len(degerler), 3) if degerler else None
+
+
+def _slice(rows: list[dict], min_dilim: int) -> dict:
+    kullanilabilir = [r for r in rows
+                      if str(r.get("isabet_1g") or "").strip().lower() in ("true", "false")]
+    n = len(kullanilabilir)
+    sonuc = {"n": n, "yetersiz": n < min_dilim}
+    for horizon in HORIZONS:
+        oran = _oran(kullanilabilir, horizon)
+        sonuc[f"isabet_{horizon}g"] = None if sonuc["yetersiz"] else oran
+        sonuc[f"oran_{horizon}g"] = oran  # yetersiz dilimlerde de bilgi amaçlı
+    return sonuc
+
+
+def _guven_araligi(deger) -> str:
+    try:
+        skor = int(str(deger).strip())
+    except ValueError:
+        return "bilinmiyor"
+    if skor <= 3:
+        return "1-3"
+    if skor <= 6:
+        return "4-6"
+    return "7-10"
+
+
+def get_summary_stats(path: Path | None = None, min_dilim: int = 30) -> dict:
+    """Tamamlanan tahminler üzerinden isabet istatistikleri (dilim başına en az `min_dilim`)."""
+    target = Path(path) if path else PREDICTIONS_CSV
+    rows = load_rows(target)
+    rows, _ = migrate_rows(rows)
+    tamamlanan = [row for row in rows if str(row.get("durum") or "").strip() == DURUM_DONE]
+
+    def dilimle(anahtar) -> dict:
+        gruplar: dict[str, list[dict]] = {}
+        for row in tamamlanan:
+            gruplar.setdefault(anahtar(row) or "—", []).append(row)
+        return {ad: _slice(grup, min_dilim) for ad, grup in sorted(gruplar.items())}
+
+    veri_tipleri = sorted({(row.get("veri_tipi") or "canli").strip() for row in tamamlanan})
+    baseline = {}
+    for tip in veri_tipleri:
+        grup = [r for r in tamamlanan if (r.get("veri_tipi") or "canli").strip() == tip]
+        degerler = [g for g in (_secili_getiri(r, 1) for r in grup) if g is not None]
+        yukari = [g for g in degerler if g > 0]
+        baseline[tip] = (round(len(yukari) / len(degerler), 3) if degerler else None, len(degerler))
+
+    return {
+        "toplam": len(rows),
+        "tamamlanan": len(tamamlanan),
+        "beklemede": len(rows) - len(tamamlanan),
+        "min_dilim": min_dilim,
+        "genel": _slice(tamamlanan, min_dilim),
+        "veri_tipi": {tip: _slice([r for r in tamamlanan
+                                   if (r.get("veri_tipi") or "canli").strip() == tip], min_dilim)
+                      for tip in veri_tipleri},
+        "model": dilimle(lambda r: r.get("model_adi")),
+        "varlik": dilimle(lambda r: r.get("varlik")),
+        "kategori": dilimle(lambda r: r.get("kategori")),
+        "guven": dilimle(lambda r: _guven_araligi(r.get("ai_guven_skoru"))),
+        "baseline_isabet": baseline,
+    }
+
+
 if __name__ == "__main__":
-    evaluate_predictions()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Agora - tahmin değerlendirici")
+    parser.add_argument("--yeniden", nargs="*", default=None,
+                        help="Verilen tahmin_id'leri durumdan bağımsız yeniden değerlendir")
+    args = parser.parse_args()
+    evaluate_predictions(tahmin_ids=args.yeniden)
+    print(get_summary_stats())

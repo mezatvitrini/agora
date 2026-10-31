@@ -217,7 +217,18 @@ TAHMIN_SUTUNLARI = {
     "ai_tahmini": "Yön",
     "ai_guven_skoru": "Güven",
     "gerceklesen_getiri_1g": "Anormal getiri 1g (%)",
+    "varlik_yon": "Varlık yönü",
+    "haber_ton": "Haber tonu",
+    "referans_varlik": "Referans",
+    "getiri_ham_1g": "Ham 1g (%)",
+    "getiri_ham_7g": "Ham 7g (%)",
+    "anormal_getiri_1g": "Anormal 1g (%)",
+    "anormal_getiri_7g": "Anormal 7g (%)",
+    "olcum_tipi": "Ölçüm",
+    "isabet_1g": "İsabet 1g",
+    "isabet_7g": "İsabet 7g",
     "gerceklesen_getiri_7g": "Anormal getiri 7g (%)",
+    "veri_tipi": "Veri tipi",
     "durum": "Durum",
 }
 
@@ -233,6 +244,60 @@ def _tahminleri_oku():
 def _ortalama_getiri(tahminler, kolon):
     degerler = pd.to_numeric(tahminler.get(kolon), errors="coerce").dropna()
     return f"{degerler.mean():.2f}%" if len(degerler) else "—"
+
+
+def _isabet_metni(tahminler, kolon):
+    seri = tahminler[kolon].str.lower() if kolon in tahminler else pd.Series(dtype=str)
+    gecerli = seri[seri.isin(["true", "false"])]
+    return f"{100 * (gecerli == 'true').mean():.0f}% (n={len(gecerli)})" if len(gecerli) else "—"
+
+
+# --- Sekmeler ---
+def _gri_tablo(satirlar):
+    """'yetersiz' işaretli satırları gri gösterir."""
+    df = pd.DataFrame(satirlar)
+    if "yetersiz" not in df.columns:
+        return df
+    def _stil(row):
+        return ["color: #9aa0a6" if row["yetersiz"] else "" for _ in row]
+    return df.style.apply(_stil, axis=1)
+
+
+def _istatistik_goster():
+    try:
+        from tracker.evaluator import get_summary_stats
+        ist = get_summary_stats()
+    except Exception as exc:  # arayüz çökmesin
+        st.warning(f"İstatistikler hesaplanamadı: {exc}")
+        return
+    st.markdown("#### İstatistikler")
+    st.caption(f"dilim eşiği: {ist['min_dilim']} tamamlanmış tahmin · toplam {ist['toplam']} · "
+               f"tamamlanan {ist['tamamlanan']} · beklemede {ist['beklemede']}")
+    basliklar = (("model", "Model"), ("varlik", "Varlık"), ("kategori", "Kategori"),
+                 ("guven", "Güven aralığı"), ("veri_tipi", "Veri tipi"))
+    for anahtar, baslik in basliklar:
+        dilimler = ist.get(anahtar) or {}
+        if not dilimler:
+            continue
+        satirlar = [
+            {
+                "dilim": ad,
+                "n": veri["n"],
+                "isabet_1g": veri.get("isabet_1g") if veri.get("isabet_1g") is not None else "yetersiz veri",
+                "isabet_7g": veri.get("isabet_7g") if veri.get("isabet_7g") is not None else "yetersiz veri",
+                "yetersiz": veri.get("yetersiz", False),
+            }
+            for ad, veri in dilimler.items()
+        ]
+        st.markdown(f"*{baslik}*")
+        st.dataframe(_gri_tablo(satirlar), width="stretch", hide_index=True)
+    baseline = ist.get("baseline_isabet") or {}
+    if baseline:
+        parca = ", ".join(
+            f"{tip}: {'—' if oran is None else round(oran * 100)}% (n={n})"
+            for tip, (oran, n) in baseline.items()
+        )
+        st.caption(f"Baseline (aynı dönemde 'hep yukarı' tahmini): {parca}")
 
 
 # --- Sekmeler ---
@@ -335,9 +400,10 @@ with tab_tracker:
             metrikler[0].metric("Toplam tahmin", len(tahminler))
             metrikler[1].metric("Tamamlanan", int((durum == "tamamlandi").sum()))
             metrikler[2].metric("Beklemede", int((durum == "beklemede").sum()))
-            metrikler[3].metric("Ort. anormal getiri (1g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_1g"))
-            metrikler[4].metric("Ort. anormal getiri (7g)", _ortalama_getiri(tahminler, "gerceklesen_getiri_7g"))
+            metrikler[3].metric("İsabet 1g", _isabet_metni(tahminler, "isabet_1g"))
+            metrikler[4].metric("İsabet 7g", _isabet_metni(tahminler, "isabet_7g"))
             st.dataframe(tahminler.rename(columns=TAHMIN_SUTUNLARI), width="stretch", hide_index=True)
+            _istatistik_goster()
 
 with tab_haber:
     st.subheader(f"{len(filtreli)} haber")

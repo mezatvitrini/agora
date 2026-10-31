@@ -135,6 +135,21 @@ FRAME_MAX_HEADLINES = 8
 FRAME_EMBEDDING_OUTPUT = "data/processed/frame_comparison_embedding.json"
 FRAME_EMBEDDING_CACHE = "data/processed/frame_embedding_cache.json"
 
+# --- Tahmin takibi (Tracker) ---
+# Referans varlık eşlemesi (anormal getiri hesabı). None -> yalnızca ham getiri.
+REFERANS_VARLIK = {
+    "BTC-USD": None,
+    "ETH-USD": "BTC-USD",
+    "XU100.IS": None,
+    "TRY=X": None,
+    "CL=F": None,
+    "GC=F": None,
+    "NG=F": None,
+    "^GSPC": None,
+    # Diğer BIST hisseleri (.IS uzantılı) BIST_REFERANS'a göre ölçülür.
+}
+BIST_REFERANS = "XU100.IS"
+
 # Dosya yolları
 RAW_CSV = "data/raw/headlines.csv"
 PROCESSED_CSV = "data/processed/headlines_tagged.csv"

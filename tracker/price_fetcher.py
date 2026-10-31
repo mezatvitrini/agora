@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from datetime import date, timedelta
 from pathlib import Path
 import pandas as pd
@@ -72,22 +73,32 @@ def benchmark_symbol(asset: str) -> str:
     return BENCHMARK_CRYPTO if is_crypto(asset) else BENCHMARK_EQUITY
 
 
-def fetch_history(symbol: str, start: date, end: date) -> pd.Series:
-    """[start, end] aralığındaki günlük kapanışları tarih indeksli Series olarak döndürür."""
+def fetch_history(symbol: str, start: date, end: date, attempts: int = 2) -> pd.Series:
+    """[start, end] aralığındaki günlük kapanışları tarih indeksli Series olarak döndürür.
+
+    yfinance zaman zaman geçici olarak boş yanıt döndürüyor; bu yüzden bir kez yeniden denenir.
+    """
     _ensure_ca_bundle()
     # yfinance, sertifika ayarı yapıldıktan sonra import edilmeli.
     import yfinance as yf
 
-    try:
-        frame = yf.Ticker(symbol).history(
-            start=start.isoformat(),
-            end=(end + timedelta(days=1)).isoformat(),
-            interval="1d",
-            auto_adjust=False,
-        )
-    except Exception as exc:  # ağ/SSL hataları yfinance içinde farklı tiplerde geliyor
-        logger.warning("Fiyat çekilemedi: %s (%s: %s)", symbol, type(exc).__name__, exc)
-        return pd.Series(dtype="float64")
+    frame = None
+    for deneme in range(attempts):
+        try:
+            frame = yf.Ticker(symbol).history(
+                start=start.isoformat(),
+                end=(end + timedelta(days=1)).isoformat(),
+                interval="1d",
+                auto_adjust=False,
+            )
+        except Exception as exc:  # ağ/SSL hataları yfinance içinde farklı tiplerde geliyor
+            logger.warning("Fiyat çekilemedi: %s (%s: %s)", symbol, type(exc).__name__, exc)
+            frame = None
+        if frame is not None and not frame.empty:
+            break
+        if deneme + 1 < attempts:
+            logger.info("Fiyat verisi boş, yeniden deneniyor: %s", symbol)
+            time.sleep(1.5)
     if frame is None or frame.empty or "Close" not in frame:
         logger.warning("Fiyat verisi yok: %s (%s - %s)", symbol, start, end)
         return pd.Series(dtype="float64")
@@ -98,13 +109,6 @@ def fetch_history(symbol: str, start: date, end: date) -> pd.Series:
     close.index = [ts.date() for ts in close.index]
     close = close[~close.index.duplicated(keep="last")].sort_index()
     return close
-
-
-def latest_date(series: pd.Series):
-    """Serideki en yeni fiyat tarihi; seri boşsa None."""
-    if series is None or series.empty:
-        return None
-    return max(series.index)
 
 
 def close_on_or_before(series: pd.Series, target: date, lookback_days: int = LOOKBACK_DAYS):
@@ -120,11 +124,62 @@ def close_on_or_before(series: pd.Series, target: date, lookback_days: int = LOO
     return float(series.loc[day]), day
 
 
+def latest_date(series: pd.Series):
+    """Serideki en yeni fiyat tarihi; seri boşsa None."""
+    if series is None or series.empty:
+        return None
+    return max(series.index)
+
+
+def close_on_or_after(series: pd.Series, target: date, lookahead_days: int = LOOKBACK_DAYS):
+    """Hedef tarihteki (yoksa en yakın SONRAKİ) kapanışı (fiyat, tarih) döndürür."""
+    if series is None or series.empty:
+        return None
+    eligible = [day for day in series.index if day >= target]
+    if not eligible:
+        return None
+    day = min(eligible)
+    if (day - target).days > lookahead_days:
+        return None
+    return float(series.loc[day]), day
+
+
+def referans_varlik(asset: str) -> str | None:
+    """Anormal getiri referansı: config.REFERANS_VARLIK; BIST hisseleri XU100.IS."""
+    from config import BIST_REFERANS, REFERANS_VARLIK
+
+    symbol = to_symbol(asset)
+    if symbol in REFERANS_VARLIK:
+        return REFERANS_VARLIK[symbol]
+    if symbol.endswith(".IS"):
+        return BIST_REFERANS
+    return None
+
+
 def get_close_price(asset: str, on: date, lookback_days: int = LOOKBACK_DAYS):
     """Bir varlığın belirli bir tarihteki kapanış fiyatı (fiyat, gerçek tarih) döner."""
     symbol = to_symbol(asset)
     series = fetch_history(symbol, on - timedelta(days=lookback_days), on)
     return close_on_or_before(series, on, lookback_days)
+
+
+def get_start_price(asset: str, when: date):
+    """Tahmin anından sonraki ilk kapanış (look-ahead önleme).
+
+    - Kripto ve 7/24 (veya sürekli) piyasalar: tahmin günündeki kapanış.
+    - Borsa (BIST vb.): sonraki ilk işlem gününün KAPANIŞI (günlük veri kullanıldığı için
+      açılış yerine kapanış; bu tercih docstring'de belgelenmiştir).
+    Fiyat alınamazsa (None, None) döner; çağıran taraf çökmez.
+    """
+    symbol = to_symbol(asset)
+    surekli = is_crypto(asset) or symbol.endswith("=X") or symbol.endswith("=F") or symbol.startswith("^")
+    hedef = when if surekli else when + timedelta(days=1)
+    series = fetch_history(symbol, when, when + timedelta(days=LOOKBACK_DAYS + 3))
+    result = close_on_or_after(series, hedef)
+    if result is None:
+        logger.warning("Başlangıç fiyatı bulunamadı: %s (%s)", symbol, when)
+        return None, None
+    return result
 
 
 if __name__ == "__main__":

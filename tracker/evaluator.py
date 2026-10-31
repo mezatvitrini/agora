@@ -284,6 +284,14 @@ def get_summary_stats(path: Path | None = None, min_dilim: int = 30) -> dict:
         yukari = [g for g in degerler if g > 0]
         baseline[tip] = (round(len(yukari) / len(degerler), 3) if degerler else None, len(degerler))
 
+    # Kısmi dilim: 7g henüz dolmamış olsa da 1g isabeti olan satırlar (replay için önemli)
+    kismi = [row for row in rows
+             if str(row.get("isabet_1g") or "").strip().lower() in ("true", "false")]
+    kismi_tipler = sorted({(row.get("veri_tipi") or "canli").strip() for row in kismi})
+    kismi_ozet = {tip: _slice([r for r in kismi if (r.get("veri_tipi") or "canli").strip() == tip],
+                              min_dilim)
+                  for tip in kismi_tipler}
+
     return {
         "toplam": len(rows),
         "tamamlanan": len(tamamlanan),
@@ -293,6 +301,7 @@ def get_summary_stats(path: Path | None = None, min_dilim: int = 30) -> dict:
         "veri_tipi": {tip: _slice([r for r in tamamlanan
                                    if (r.get("veri_tipi") or "canli").strip() == tip], min_dilim)
                       for tip in veri_tipleri},
+        "kismi_1g": kismi_ozet,
         "model": dilimle(lambda r: r.get("model_adi")),
         "varlik": dilimle(lambda r: r.get("varlik")),
         "kategori": dilimle(lambda r: r.get("kategori")),

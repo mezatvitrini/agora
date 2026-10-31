@@ -50,6 +50,7 @@ NEW_COLUMNS = [
     "isabet_1g",
     "isabet_7g",
     "veri_tipi",
+    "donem_tipi",
     "baslangic_fiyat",
     "baslangic_zamani",
 ]
@@ -194,7 +195,8 @@ def save_prediction(headline: str, asset: str, direction: str, confidence, tarih
                     alinti_kanit: str | None = None, kume_id: str = "", model_adi: str = "",
                     prompt_versiyonu: str = "", kategori: str = "", haber_ton: str | None = None,
                     varlik_yon: str | None = None, gerekce: str = "",
-                    veri_tipi: str = "canli") -> dict:
+                    veri_tipi: str = "canli", donem_tipi: str = "",
+                    referans_varlik: str = "") -> dict:
     """Yeni tahmin satırı ekler (daima 'beklemede').
 
     alinti_kanit zorunludur: boş/None ise ValueError fırlatılır.
@@ -212,6 +214,9 @@ def save_prediction(headline: str, asset: str, direction: str, confidence, tarih
     tip = str(veri_tipi or "canli").strip().lower()
     if tip not in VERI_TIPI_VALUES:
         raise ValueError(f"Geçersiz veri_tipi: {veri_tipi!r} (canli/geri_tarama olmalı)")
+    donem = str(donem_tipi or "").strip().lower()
+    if donem and donem not in ("kesif", "dogrulama"):
+        raise ValueError(f"Geçersiz donem_tipi: {donem_tipi!r} (kesif/dogrulama olmalı)")
 
     duygu = _normalize_direction(direction)
     ton = _normalize_direction(haber_ton) if (haber_ton and str(haber_ton).strip()) else duygu
@@ -233,12 +238,13 @@ def save_prediction(headline: str, asset: str, direction: str, confidence, tarih
         "model_adi": str(model_adi or "").strip(),
         "prompt_versiyonu": str(prompt_versiyonu or "").strip(),
         "kategori": str(kategori or "").strip(),
-        "referans_varlik": "",
+        "referans_varlik": str(referans_varlik or "").strip(),
         "haber_ton": ton,
         "varlik_yon": _normalize_varlik_yon(varlik_yon, ton),
         "alinti_kanit": kanit,
         "gerekce": str(gerekce or "").strip(),
         "veri_tipi": tip,
+        "donem_tipi": donem,
     })
     rows.append(row)
     save_rows(rows)

@@ -378,6 +378,7 @@ with tab_frame:
 
 with tab_tracker:
     st.markdown("### Tahmin Takibi (Tracker)")
+    st.warning("Paper takip: bu çıkarımlar yatırım tavsiyesi değildir; geri tarama sonuçları sızıntı ve örneklem sınırları nedeniyle ön göstergedir.")
     if not PREDICTIONS_CSV.exists():
         st.info("Henüz tahmin kaydı yok. `data/predictions.csv` ilk tahminle birlikte oluşur.")
     else:

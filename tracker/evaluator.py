@@ -78,8 +78,13 @@ def _referans_degeri(ref_series, start_day: date, horizon: int):
     return close_on_or_after(ref_series, hedef, lookahead_days=EXTRA_DAYS + 2)
 
 
-def evaluate_predictions(path: Path | None = None, tahmin_ids: list[str] | None = None) -> dict:
-    """Bekleyen tahminleri (veya verilen tahmin_id'leri) değerlendirir."""
+def evaluate_predictions(path: Path | None = None, tahmin_ids: list[str] | None = None,
+                         kismi: bool = False) -> dict:
+    """Bekleyen tahminleri (veya verilen tahmin_id'leri) değerlendirir.
+
+    kismi=True: yalnızca 1g dolmuşsa da yazılır (7g boş kalır, durum 'beklemede' kalır);
+    replay akışında 7 günü dolmamış kayıtlar için kullanılır.
+    """
     target = Path(path) if path else PREDICTIONS_CSV
     if not target.exists():
         logger.error("Tahmin dosyası bulunamadı: %s", target)
@@ -155,8 +160,11 @@ def evaluate_predictions(path: Path | None = None, tahmin_ids: list[str] | None 
                     break
                 ref_getiri = (ref_fiyat[0] / ref_baslangic - 1) * 100
                 anormal[horizon] = ham[horizon] - ref_getiri
-        if eksik:
+        if eksik and not kismi:
             logger.info("%s: horizon fiyatları henüz yok, beklemede bırakıldı", tahmin_id)
+            summary["bekleyen"] += 1
+            continue
+        if not ham:
             summary["bekleyen"] += 1
             continue
 
@@ -164,17 +172,20 @@ def evaluate_predictions(path: Path | None = None, tahmin_ids: list[str] | None 
         yon = (row.get("varlik_yon") or "").strip() or YON_FROM_DUYGU.get(
             (row.get("haber_ton") or row.get("ai_tahmini") or "").strip(), "notr")
 
+        tamam = len(ham) == len(HORIZONS)
         deger = {
             "baslangic_fiyat": _pct(baslangic_fiyat) if baslangic_fiyat is not None else "",
             "baslangic_zamani": baslangic_gun.isoformat(),
-            "getiri_ham_1g": _pct(ham[1]),
-            "getiri_ham_7g": _pct(ham[7]),
-            "anormal_getiri_1g": _pct(anormal[1]) if anormal else "",
-            "anormal_getiri_7g": _pct(anormal[7]) if anormal else "",
+            "getiri_ham_1g": _pct(ham[1]) if 1 in ham else "",
+            "getiri_ham_7g": _pct(ham[7]) if 7 in ham else "",
+            "anormal_getiri_1g": _pct(anormal[1]) if 1 in anormal else "",
+            "anormal_getiri_7g": _pct(anormal[7]) if 7 in anormal else "",
             "olcum_tipi": olcum_tipi,
-            "isabet_1g": _isabet(yon, anormal.get(1) if olcum_tipi == "anormal" else ham[1]),
-            "isabet_7g": _isabet(yon, anormal.get(7) if olcum_tipi == "anormal" else ham[7]),
-            "durum": DURUM_DONE,
+            "isabet_1g": (_isabet(yon, anormal.get(1) if olcum_tipi == "anormal" else ham.get(1))
+                          if 1 in ham else ""),
+            "isabet_7g": (_isabet(yon, anormal.get(7) if olcum_tipi == "anormal" else ham.get(7))
+                          if 7 in ham else ""),
+            "durum": DURUM_DONE if tamam else DURUM_PENDING,
         }
         izinsiz = set(deger) - OLCUM_ALANLARI
         if izinsiz:  # kayıt değiştirilemez ilkesinin koruması

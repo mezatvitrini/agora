@@ -157,6 +157,15 @@ REFERANS_VARLIK = {
 }
 BIST_REFERANS = "XU100.IS"
 
+# --- Piyasa çıkarımı (Adım B Aşama 3) ---
+ASSET_LISTESI = ["BTC-USD", "ETH-USD", "CL=F", "GC=F", "NG=F", "^GSPC", "XU100.IS", "TRY=X"]
+MAX_HABER_YASI_SAAT = 12
+MAX_TAHMIN_PER_RUN = 15
+MARKET_OUTPUT = "data/processed/market_inference.json"
+MARKET_CACHE = "data/processed/market_cache.json"
+# Doldurulana kadar sızıntı uyarısı verilir (kullanıcı dolduracak)
+MODEL_KESIM_TARIHI = ""
+
 # Dosya yolları
 RAW_CSV = "data/raw/headlines.csv"
 PROCESSED_CSV = "data/processed/headlines_tagged.csv"

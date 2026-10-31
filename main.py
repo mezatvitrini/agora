@@ -19,18 +19,23 @@ if __name__ == "__main__":
     print("1. RSS toplanıyor...")
     collect()
     print("2. Kategoriler etiketleniyor...")
-    tag()
-    print(f"3. Çerçeve karşılaştırması yapılıyor... (mod: {args.cluster_mode})")
+    tag([])
+    if args.cluster_mode == "embedding":
+        print("3. Kümeler üretiliyor (yerel, ücretsiz)...")
+        from analyzer.embedding_clusterer import main as cluster_main
+        cluster_main([])             # ülke karşılaştırması hattı
+        cluster_main(["--market"])   # kripto/piyasa hattı
+    print(f"4. Çerçeve karşılaştırması yapılıyor... (mod: {args.cluster_mode})")
     compare_frames(["--cluster-mode", args.cluster_mode])
     if args.cluster_mode == "embedding":
-        print("4. Alıntı doğrulama (yerel, ücretsiz)...")
+        print("5. Alıntı doğrulama (yerel, ücretsiz)...")
         from analyzer.verify_quotes import main as verify_quotes
         verify_quotes([])
         if args.market:
-            print("5. Piyasa çıkarımı (canlı, LLM)...")
+            print("6. Piyasa çıkarımı (canlı, LLM)...")
             from analyzer.market_inference import run as market_run
             market_run(mode="canli", dry_run=False)
-        print("6. Tahmin değerlendirme (1g/7g dolanlar)...")
+        print("7. Tahmin değerlendirme (1g/7g dolanlar)...")
         from tracker.evaluator import evaluate_predictions
         evaluate_predictions()
     print("[OK] Agora tamamlandı.")

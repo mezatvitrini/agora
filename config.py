@@ -9,7 +9,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 # RSS kaynakları
 # Her kaynak: url, ulke (ISO 3166-1 alpha-2), dil (ISO 639-1),
-# kaynak_tipi ("devlet_baglantili" / "ozel" / "ajans").
+# kaynak_tipi: "devlet_kontrollu" / "kamu_yayincisi" / "devlet_finansmanli" / "ozel" / "ajans".
 # Eski biçim (yalnızca URL metni) de desteklenir: collector eksik alanları boş bırakır.
 FEEDS = {
     # --- Türkiye ---
@@ -17,13 +17,13 @@ FEEDS = {
         "url": "https://www.aa.com.tr/tr/rss/default?cat=guncel",
         "ulke": "TR",
         "dil": "tr",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "devlet_kontrollu",
     },
     "bbc_turkce": {
         "url": "https://feeds.bbci.co.uk/turkce/rss.xml",
         "ulke": "GB",
         "dil": "tr",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "kamu_yayincisi",
     },
     "hurriyet": {
         "url": "https://www.hurriyet.com.tr/rss/anasayfa",
@@ -35,7 +35,7 @@ FEEDS = {
         "url": "https://www.dailysabah.com/rssFeed/all",
         "ulke": "TR",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "ozel",
     },
     # --- ABD ---
     "cnn_world": {
@@ -55,7 +55,7 @@ FEEDS = {
         "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
         "ulke": "GB",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "kamu_yayincisi",
     },
     "euronews": {
         "url": "https://www.euronews.com/rss?level=theme&name=news",
@@ -74,27 +74,27 @@ FEEDS = {
         "url": "https://www.rt.com/rss/",
         "ulke": "RU",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "devlet_kontrollu",
     },
     "tass": {
         "url": "https://tass.com/rss/v2.xml",
         "ulke": "RU",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "devlet_kontrollu",
     },
     # --- Orta Doğu ---
     "aljazeera": {
         "url": "https://www.aljazeera.com/xml/rss/all.xml",
         "ulke": "QA",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "devlet_finansmanli",
     },
     # --- Çin ---
     "cgtn": {
         "url": "https://www.cgtn.com/subscribe/rss/section/world.xml",
         "ulke": "CN",
         "dil": "en",
-        "kaynak_tipi": "devlet_baglantili",
+        "kaynak_tipi": "devlet_kontrollu",
     },
     # --- Kripto / piyasa ---
     "coindesk": {

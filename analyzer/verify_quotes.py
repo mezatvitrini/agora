@@ -27,6 +27,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 EMBEDDING_JSON = "data/processed/frame_comparison_embedding.json"
 YAKIN_ESIK = 0.85
 BELIRSIZ = "belirsiz"
+KISA = "kisa"
+MIN_ALINTI_KELIME = 3
+MIN_ALINTI_KARAKTER = 12
 
 _TR_FOLD = str.maketrans({
     "ı": "i", "ş": "s", "ğ": "g", "ü": "u", "ö": "o", "ç": "c",
@@ -34,9 +37,13 @@ _TR_FOLD = str.maketrans({
 })
 
 KAYNAK_TIPI_ETIKET = {
-    "devlet_baglantili": "devlet_kontrollu",
+    "devlet_kontrollu": "devlet_kontrollu",
+    "kamu_yayincisi": "kamu_yayincisi",
+    "devlet_finansmanli": "devlet_finansmanli",
     "ozel": "ozel",
     "ajans": "ajans",
+    # eski veriler için geriye dönük eşleme
+    "devlet_baglantili": "devlet_kontrollu",
 }
 
 
@@ -78,10 +85,13 @@ def similarity(quote: str, headline: str) -> float:
 
 
 def verify_quote(quote: str, candidates: list[str], threshold: float = YAKIN_ESIK) -> tuple[str, str]:
-    """(sonuç, eşleşen başlık) döndürür: birebir / yakin / yok / belirsiz."""
+    """(sonuç, eşleşen başlık) döndürür: birebir / yakin / yok / kisa / belirsiz."""
     normalized_quote = normalize(quote)
     if not normalized_quote or normalized_quote == BELIRSIZ:
         return "belirsiz", ""
+    # Çok kısa alıntılar (ör. tek kelime) yanlışlıkla "birebir" sayılmasın.
+    if len(normalized_quote.split()) < MIN_ALINTI_KELIME or len(normalized_quote) < MIN_ALINTI_KARAKTER:
+        return KISA, ""
     best_score = 0.0
     best_candidate = ""
     for candidate in candidates:
@@ -181,7 +191,15 @@ def print_report(data: dict, sonuc: dict, threshold: float = YAKIN_ESIK) -> None
     kayitlar = [r for records in sonuc["detay"].values() for r in records]
     print("\n=== alıntı doğrulama ===")
     print(f"  toplam analiz: {len(kayitlar)} | birebir: {sayac['birebir']} | "
-          f"yakin ({threshold}): {sayac['yakin']} | yok: {sayac['yok']} | belirsiz: {sayac['belirsiz']}")
+          f"yakin ({threshold}): {sayac['yakin']} | yok: {sayac['yok']} | "
+          f"kisa: {sayac[KISA]} | belirsiz: {sayac['belirsiz']}")
+
+    kisa = [r for r in kayitlar if r["sonuc"] == KISA]
+    if kisa:
+        print(f"\n=== 'kisa' alıntılar (birebir sayılmadı: < {MIN_ALINTI_KELIME} kelime "
+              f"veya < {MIN_ALINTI_KARAKTER} karakter) ===")
+        for r in kisa:
+            print(f"  [{r['kume_id']} · {r['kaynak']}] {r['alinti'][:70]!r}")
 
     print("\n=== 'yok' olan alıntılar ===")
     bulunamayan = [r for r in kayitlar if r["sonuc"] == "yok"]

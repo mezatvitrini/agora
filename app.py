@@ -10,7 +10,10 @@ GAPS_EMBEDDING_CSV = Path("data/processed/gaps_embedding.csv")
 PREDICTIONS_CSV = Path("data/predictions.csv")
 
 KAYNAK_TIPI_ETIKET = {
-    "devlet_baglantili": "devlet bağlantılı",
+    "devlet_kontrollu": "devlet kontrollü",
+    "kamu_yayincisi": "kamu yayıncısı",
+    "devlet_finansmanli": "devlet finansmanlı",
+    "devlet_baglantili": "devlet kontrollü",  # eski veriler için
     "ozel": "özel",
     "ajans": "ajans",
 }
@@ -74,6 +77,8 @@ def _kaynak_panosu(analiz):
                    + (" ⚠️ doğrulanamadı" if dogrulama == "yok" else ""))
         if dogrulama == "yok":
             st.warning("⚠️ Alıntı bu kaynağın başlığında bulunamadı (kaynak metne dayanmıyor olabilir).")
+        elif dogrulama == "kisa":
+            st.caption("Kısa alıntı — doğrulama için yeterli uzunlukta değil.")
     else:
         st.markdown(f"**Aktif özne:** {analiz.get('aktif_ozne') or '—'}")
         st.markdown(f"**Seçili kelimeler:** {_liste_metni(analiz.get('secili_kelimeler'))}")

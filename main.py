@@ -18,6 +18,10 @@ if __name__ == "__main__":
     collect()
     print("2. Kategoriler etiketleniyor...")
     tag()
-    print(f"3. Çerçeve karşılaştırması yapılıyor... (mod: {args.cluster_mode})")
+    print(f"  3. Çerçeve karşılaştırması yapılıyor... (mod: {args.cluster_mode})")
     compare_frames(["--cluster-mode", args.cluster_mode])
+    if args.cluster_mode == "embedding":
+        print("4. Alıntı doğrulama (yerel, ücretsiz)...")
+        from analyzer.verify_quotes import main as verify_quotes
+        verify_quotes([])
     print("[OK] Agora tamamlandı.")

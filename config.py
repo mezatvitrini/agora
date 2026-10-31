@@ -166,6 +166,9 @@ MARKET_CACHE = "data/processed/market_cache.json"
 # Doldurulana kadar sızıntı uyarısı verilir (kullanıcı dolduracak)
 MODEL_KESIM_TARIHI = ""
 
+# Başlık tazeliği: clustering ve piyasa çıkarımına yalnızca son N günün başlıkları girer
+MAX_BASLIK_YASI_GUN = 7
+
 # Dosya yolları
 RAW_CSV = "data/raw/headlines.csv"
 PROCESSED_CSV = "data/processed/headlines_tagged.csv"

@@ -268,8 +268,12 @@ def get_summary_stats(path: Path | None = None, min_dilim: int = 30) -> dict:
     target = Path(path) if path else PREDICTIONS_CSV
     rows = load_rows(target)
     rows, _ = migrate_rows(rows)
-    # Kopya olarak işaretlenen kayıtlar istatistiklere girmez
-    rows = [row for row in rows if str(row.get("kopya") or "").strip().lower() not in ("true", "evet", "1")]
+    # Kopya veya eski içerik olarak işaretlenen kayıtlar istatistiklere girmez
+    def _bayrakli(row: dict) -> bool:
+        return any(str(row.get(alan) or "").strip().lower() in ("true", "evet", "1")
+                   for alan in ("kopya", "eski_icerik"))
+
+    rows = [row for row in rows if not _bayrakli(row)]
     tamamlanan = [row for row in rows if str(row.get("durum") or "").strip() == DURUM_DONE]
 
     def dilimle(anahtar) -> dict:

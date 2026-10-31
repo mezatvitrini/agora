@@ -30,6 +30,7 @@ from config import (
     ASSET_LISTESI,
     CATEGORIES,
     CLUSTERS_CSV,
+    MAX_BASLIK_YASI_GUN,
     MAX_HABER_YASI_SAAT,
     MAX_TAHMIN_PER_RUN,
     MARKET_CACHE,
@@ -163,6 +164,13 @@ def load_clusters(meta: dict[tuple[str, str], dict]) -> tuple[list[dict], Counte
             sayac["kapsam_disi"] += 1
             return
         tarihler = [h["published"] for h in haberler if h["published"]]
+        if len(tarihler) != len(haberler):
+            sayac["tarihsiz_baslik"] += 1
+            return
+        en_eski = min(tarihler)
+        if (datetime.now() - en_eski).days > MAX_BASLIK_YASI_GUN:
+            sayac["bayat_kume"] += 1
+            return
         imza = frozenset((h["kaynak"], h["baslik"]) for h in haberler)
         if imza in gorulen:
             sayac["tekrar_kume"] += 1

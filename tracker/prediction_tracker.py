@@ -54,6 +54,7 @@ NEW_COLUMNS = [
     "baslangic_fiyat",
     "baslangic_zamani",
     "kopya",
+    "eski_icerik",
 ]
 COLUMNS = LEGACY_COLUMNS + NEW_COLUMNS
 
@@ -247,6 +248,7 @@ def save_prediction(headline: str, asset: str, direction: str, confidence, tarih
         "veri_tipi": tip,
         "donem_tipi": donem,
         "kopya": "",
+        "eski_icerik": "",
     })
     rows.append(row)
     save_rows(rows)
@@ -315,6 +317,27 @@ def mark_copies(path: Path | None = None) -> list[dict]:
         save_rows(rows, target)
         logger.info("Kopya olarak işaretlenen kayıt: %d", len(isaretlenen))
     return isaretlenen
+
+
+FLAG_ALANLARI = {"kopya", "eski_icerik"}
+
+
+def set_flag(tahmin_ids: list[str], flag: str = "eski_icerik", value: str = "evet",
+             path: Path | None = None) -> int:
+    """Kayıtları silmeden bayrak yazar (kopya / eski_icerik)."""
+    if flag not in FLAG_ALANLARI:
+        raise ValueError(f"Geçersiz bayrak: {flag} (izinli: {sorted(FLAG_ALANLARI)})")
+    rows = load_rows(path)
+    rows, _ = migrate_rows(rows)
+    hedef = {str(t).strip() for t in tahmin_ids}
+    sayi = 0
+    for row in rows:
+        if row.get("tahmin_id") in hedef and str(row.get(flag) or "") != value:
+            row[flag] = value
+            sayi += 1
+    if sayi:
+        save_rows(rows, path)
+    return sayi
 
 
 def update_measurements(tahmin_id: str, values: dict, path: Path | None = None) -> dict:

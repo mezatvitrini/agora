@@ -20,16 +20,18 @@ from itertools import combinations
 from pathlib import Path
 import numpy as np
 from config import (
-    CLUSTERS_CSV,
+    CATEGORIES,
     CLUSTER_MAX_DAYS,
     CLUSTER_MAX_SIZE,
     CLUSTER_THRESHOLD,
+    CLUSTERS_CSV,
     EMBEDDINGS_DIR,
     EMBEDDING_EXCLUDE_SOURCES,
     EMBEDDING_MODEL,
     EXCLUDED_CATEGORIES,
     FRAME_SKIP_SINGLE_COUNTRY,
     GAPS_CSV,
+    MAX_BASLIK_YASI_GUN,
     PROCESSED_CSV,
 )
 
@@ -96,8 +98,16 @@ def load_rows(path: Path | None = None) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def _taze_mi(gun) -> bool:
+    """published tarihi son MAX_BASLIK_YASI_GUN gün içinde mi (boş/eski ise elenir)."""
+    if gun is None:
+        return False
+    from datetime import date as _date
+    return (_date.today() - gun).days <= MAX_BASLIK_YASI_GUN
+
+
 def prepare_rows(rows: list[dict]) -> tuple[list[dict], Counter]:
-    """Kümelenecek satırları süzer: boş/spor kategorisi ve hariç kaynaklar dışarıda."""
+    """Kümelenecek satırları süzer: boş/spor kategorisi, hariç kaynaklar ve eski tarihli başlıklar."""
     excluded_categories = set(EXCLUDED_CATEGORIES)
     excluded_sources = set(EMBEDDING_EXCLUDE_SOURCES)
     kept: list[dict] = []
@@ -118,13 +128,17 @@ def prepare_rows(rows: list[dict]) -> tuple[list[dict], Counter]:
         if excluded_categories & set(categories):
             skipped["kategori_hariç"] += 1
             continue
+        gun = _parse_day(row.get("published"))
+        if not _taze_mi(gun):
+            skipped["tarih_yok" if gun is None else "eski_tarih"] += 1
+            continue
         kept.append({
             "title": title,
             "source": source,
             "ulke": (row.get("ulke") or "").strip(),
             "dil": (row.get("dil") or "").strip(),
             "kaynak_tipi": (row.get("kaynak_tipi") or "").strip(),
-            "day": _parse_day(row.get("published")),
+            "day": gun,
             "categories": categories,
         })
     return kept, skipped
@@ -146,13 +160,17 @@ def prepare_market_rows(rows: list[dict]) -> tuple[list[dict], Counter]:
             continue
         categories = _json_list(row.get("kategoriler"))
         if source in kaynaklar or MARKET_CATEGORY in categories:
+            gun = _parse_day(row.get("published"))
+            if not _taze_mi(gun):
+                skipped["tarih_yok" if gun is None else "eski_tarih"] += 1
+                continue
             kept.append({
                 "title": title,
                 "source": source,
                 "ulke": (row.get("ulke") or "").strip(),
                 "dil": (row.get("dil") or "").strip(),
                 "kaynak_tipi": (row.get("kaynak_tipi") or "").strip(),
-                "day": _parse_day(row.get("published")),
+                "day": gun,
                 "categories": categories,
             })
         else:
